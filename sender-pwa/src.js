@@ -70,6 +70,7 @@ function row(item){
 }
 $("connect").onclick=async()=>{
  token=$("token").value.trim();
+ try{sessionStorage.setItem("khensoz-pair-token",token)}catch(e){}
  try{await api("/api/status");$("connection").textContent="Connected to Windows receiver";$("error").textContent=""}
  catch(e){$("connection").textContent="Connection failed: "+e.message}
 };
@@ -77,7 +78,7 @@ $("connect").onclick=async()=>{
 (function autoPairFromQR(){
  const params=new URLSearchParams(window.location.hash.slice(1));
  const scanned=params.get("token");
- if(!scanned)return;
+ if(!scanned){try{const remembered=sessionStorage.getItem("khensoz-pair-token");if(remembered){$("token").value=remembered;setTimeout(()=>$("connect").click(),0)}}catch(e){}return;}
  $("token").value=scanned;
  history.replaceState(null,"",window.location.pathname+window.location.search);
  // The click uses the same validated connection flow as manual pairing.
