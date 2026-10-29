@@ -1,4 +1,4 @@
-import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback
+import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subprocess
 from pathlib import Path
 from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -21,6 +21,7 @@ class State:
   if not name or name in (".","..") or len(name)>240 or not isinstance(size,int) or size<0 or size>10**15:raise ValueError("Invalid file")
   with LOCK:
    for k,v in self.sessions.items():
+    if v["status"]=="cancelled":continue
     if (v["name"],v["size"],v["fingerprint"])==(name,size,fingerprint):
      if v["status"]=="complete":return {"id":k,"offset":size,"complete":True}
      p=Path(v["part"])
@@ -35,7 +36,9 @@ class State:
    self.save();return {"id":k,"offset":0,"complete":False}
  def append(self,k,offset,data):
   with LOCK:
-   v=self.sessions[k];p=Path(v["part"])
+   v=self.sessions[k]
+   if v["status"]!="receiving":raise ValueError("Transfer is no longer active")
+   p=Path(v["part"])
    actual=p.stat().st_size
    if offset!=actual:raise ValueError(f"Offset mismatch: {actual}")
    if actual+len(data)>v["size"]:raise ValueError("Exceeds file size")
@@ -43,7 +46,9 @@ class State:
    v["offset"]=actual+len(data);self.save();return v["offset"]
  def finish(self,k):
   with LOCK:
-   v=self.sessions[k];p=Path(v["part"])
+   v=self.sessions[k]
+   if v["status"]!="receiving":raise ValueError("Transfer is no longer active")
+   p=Path(v["part"])
    if p.stat().st_size!=v["size"]:raise ValueError("Incomplete")
    target=Path(v["target"])
    target.parent.mkdir(parents=True,exist_ok=True)
@@ -59,6 +64,24 @@ class State:
     staging.replace(target)
     p.unlink()
    v["status"]="complete";v["offset"]=v["size"];self.save()
+ def cancel(self,k):
+  with LOCK:
+   v=self.sessions[k]
+   if v["status"]=="complete":raise ValueError("Completed transfers cannot be cancelled")
+   if v["status"]!="cancelled":
+    v["status"]="cancelled"
+    p=Path(v["part"])
+    if p.exists():p.unlink()
+    self.save()
+ def remove(self,k):
+  with LOCK:
+   v=self.sessions[k]
+   if v["status"]=="receiving":self.cancel(k)
+   del self.sessions[k]
+   self.save()
+ def snapshot(self):
+  with LOCK:
+   return {k:dict(v) for k,v in self.sessions.items()}
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,format,*args):
   try:
@@ -71,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
   path=urlsplit(self.path).path
   if path.startswith("/api/"):
    if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
-   if path=="/api/status":return self.send(200,{"sessions":self.server.state.sessions})
+   if path=="/api/status":return self.send(200,{"sessions":self.server.state.snapshot()})
    return self.send(404,{"error":"Not found"})
   file=WEB/(path.lstrip("/") or "index.html")
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
@@ -84,6 +107,10 @@ class Handler(BaseHTTPRequestHandler):
    if length>4096:raise ValueError("Request too large")
    data=json.loads(self.rfile.read(length))
    if self.path=="/api/init":return self.send(200,self.server.state.create_or_resume(data["name"],data["size"],data["fingerprint"]))
+   if self.path.startswith("/api/cancel/"):
+    self.server.state.cancel(self.path.split("/")[-1]);return self.send(200,{"cancelled":True})
+   if self.path.startswith("/api/remove/"):
+    self.server.state.remove(self.path.split("/")[-1]);return self.send(200,{"removed":True})
    if self.path.startswith("/api/finish/"):
     self.server.state.finish(self.path.split("/")[-1]);return self.send(200,{"complete":True})
    return self.send(404,{"error":"Not found"})
@@ -135,14 +162,51 @@ def main():
  ttk.Label(frame,text="Transfers",style="Dark.TLabel").pack(anchor="w",pady=(12,3))
  listing=tk.Listbox(frame,bg="#253a4e",fg="white",selectbackground="#17845a",borderwidth=0,highlightthickness=0)
  listing.pack(fill="both",expand=True)
+ controls=ttk.Frame(frame,style="Dark.TFrame");controls.pack(fill="x",pady=(10,0))
+ def selected():
+  selection=listing.curselection()
+  if not selection:return None
+  keys=list(state.snapshot())
+  return keys[selection[0]] if selection[0]<len(keys) else None
+ def cancel_selected():
+  from tkinter import messagebox
+  k=selected()
+  if not k:return
+  try:
+   if messagebox.askyesno("Cancel transfer","Cancel this transfer and delete its incomplete data?"):
+    state.cancel(k);update()
+  except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot cancel",str(e))
+ def remove_selected():
+  from tkinter import messagebox
+  k=selected()
+  if not k:return
+  if messagebox.askyesno("Remove transfer","Remove this item from the transfer list? Completed files will be kept."):
+   state.remove(k);update()
+ def open_selected(folder=False):
+  from tkinter import messagebox
+  k=selected()
+  if not k:return
+  v=state.snapshot().get(k)
+  if not v or v["status"]!="complete":
+   messagebox.showinfo("Not completed","Opening files is available after transfer completes.");return
+  p=Path(v["target"])
+  if not p.exists():messagebox.showerror("File missing","The completed file was moved or deleted.");return
+  if folder:subprocess.Popen(["explorer.exe","/select,",str(p)])
+  else:os.startfile(str(p))
+ ttk.Button(controls,text="Cancel selected",style="Dark.TButton",command=cancel_selected).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="Remove from list",style="Dark.TButton",command=remove_selected).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="Open file",style="Dark.TButton",command=lambda:open_selected(False)).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="Show in folder",style="Dark.TButton",command=lambda:open_selected(True)).pack(side="left")
  try:server=Server(("0.0.0.0",8765),state)
  except OSError as e:
   from tkinter import messagebox
   messagebox.showerror("Cannot start receiver",str(e));root.destroy();return
  def update():
   state.destination=Path(dest.get());state.destination.mkdir(parents=True,exist_ok=True)
+  current=listing.curselection()
   listing.delete(0,tk.END)
-  for v in state.sessions.values():listing.insert(tk.END,f'{v["name"]} - {v["offset"]:,} / {v["size"]:,} bytes - {v["status"]}')
+  for v in state.snapshot().values():listing.insert(tk.END,f'{v["name"]} - {v["offset"]:,} / {v["size"]:,} bytes - {v["status"]}')
+  if current and current[0]<listing.size():listing.selection_set(current[0])
   root.after(1000,update)
  threading.Thread(target=server.serve_forever,daemon=True).start();update()
  root.protocol("WM_DELETE_WINDOW",lambda:(server.shutdown(),root.destroy()));root.mainloop()
