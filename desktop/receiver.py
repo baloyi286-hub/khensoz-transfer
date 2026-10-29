@@ -1,4 +1,4 @@
-import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk
+import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback
 from pathlib import Path
 from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -47,6 +47,10 @@ class State:
    if p.stat().st_size!=v["size"]:raise ValueError("Incomplete")
    p.replace(v["target"]);v["status"]="complete";v["offset"]=v["size"];self.save()
 class Handler(BaseHTTPRequestHandler):
+ def log_message(self,format,*args):
+  try:
+   with (self.server.state.home/'receiver.log').open('a',encoding='utf-8') as log:log.write('%s - %s\n'%(self.address_string(),format%args))
+  except OSError:pass
  def send(self,code,data):
   b=json.dumps(data).encode();self.send_response(code);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
  def auth(self):return secrets.compare_digest(self.headers.get("X-Transfer-Token",""),self.server.state.token)
