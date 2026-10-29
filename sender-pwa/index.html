@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101c2a">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/style.css?v=3">
+<link rel="stylesheet" href="/style.css?v=4">
 <title>Khensoz Transfer</title>
 </head>
 <body>
@@ -18,10 +18,9 @@
 <button id="connect" type="button">Connect</button>
 <p id="connection" role="status"></p>
 <section>
-<button id="choosePhotos" class="pick" type="button">Choose photos and videos</button>
-<button id="chooseFiles" class="pick secondary" type="button">Choose files</button>
-<input id="photos" type="file" accept="image/*,video/*" multiple class="file-input">
-<input id="files" type="file" multiple class="file-input">
+<label class="picker">Choose photos and videos<input id="photos" type="file" accept="image/*,video/*" multiple></label>
+<label class="picker secondary">Choose files<input id="files" type="file" multiple></label>
+<p id="pickerStatus" role="status">Select items using either button above.</p>
 <p id="count" role="status">No files selected</p>
 <button id="start" type="button">Transfer all</button>
 </section>
@@ -29,6 +28,6 @@
 <p id="error" role="alert"></p>
 <p class="note">Keep Safari open and your iPhone awake during transfer. Interrupted files can resume after reselecting them.</p>
 </main>
-<script type="module" src="/src.js?v=3"></script>
+<script type="module" src="/src.js?v=4"></script>
 </body>
 </html>
