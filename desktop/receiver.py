@@ -86,24 +86,47 @@ class Server(ThreadingHTTPServer):
  daemon_threads=True
  def __init__(self,address,state):super().__init__(address,Handler);self.state=state
 def main():
- root=tk.Tk();root.title("Khensoz Transfer");root.geometry("650x420")
+ root=tk.Tk();root.title("Khensoz Transfer");root.geometry("750x530");root.configure(bg="#101b2a")
+ style=ttk.Style();style.theme_use("clam")
+ style.configure("Dark.TFrame",background="#101b2a")
+ style.configure("Dark.TLabel",background="#101b2a",foreground="#eaf4ff",font=("Segoe UI",11))
+ style.configure("Dark.TEntry",fieldbackground="#263a4e",foreground="white",padding=9)
+ style.configure("Dark.TButton",background="#17845a",foreground="white",padding=9)
+ style.map("Dark.TButton",background=[("active","#20a570")])
+ frame=ttk.Frame(root,style="Dark.TFrame",padding=22);frame.pack(fill="both",expand=True)
+ ttk.Label(frame,text="Khensoz Transfer",style="Dark.TLabel",font=("Segoe UI",22,"bold")).pack(anchor="w",pady=(0,15))
  dest=tk.StringVar(value=str(Path.home()/"Downloads"/"Khensoz Transfer"))
- tk.Label(root,text="Khensoz Transfer",font=("Segoe UI",19,"bold")).pack(pady=15)
- tk.Label(root,text="Destination folder").pack()
- tk.Entry(root,textvariable=dest,width=72).pack()
- tk.Button(root,text="Choose folder",command=lambda:dest.set(filedialog.askdirectory() or dest.get())).pack(pady=8)
- info=tk.StringVar();tk.Label(root,textvariable=info,font=("Segoe UI",11)).pack(pady=10)
- listing=tk.Listbox(root,width=90,height=10);listing.pack(padx=10,pady=10)
- state=State(dest.get(),8765);server=Server(("0.0.0.0",8765),state)
+ ttk.Label(frame,text="Save incoming files to",style="Dark.TLabel").pack(anchor="w")
+ ttk.Entry(frame,textvariable=dest,style="Dark.TEntry").pack(fill="x",pady=7)
+ ttk.Button(frame,text="Choose folder",style="Dark.TButton",command=lambda:dest.set(filedialog.askdirectory() or dest.get())).pack(anchor="w",pady=(0,16))
+ state=State(dest.get(),8765)
+ addresses=set()
+ try:
+  for item in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET):
+   ip=item[4][0]
+   if not ip.startswith(("127.","169.254.")):addresses.add(ip)
+ except OSError:pass
+ try:
+  s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("1.1.1.1",80));addresses.add(s.getsockname()[0]);s.close()
+ except OSError:pass
+ ttk.Label(frame,text="Open one of these URLs on iPhone Safari (same Wi-Fi)",style="Dark.TLabel").pack(anchor="w")
+ info=tk.Label(frame,text="\\n".join("http://"+ip+":8765" for ip in sorted(addresses)) or "No LAN IP detected",bg="#253a4e",fg="#6ce1aa",font=("Consolas",12),justify="left",anchor="w",padx=12,pady=12)
+ info.pack(fill="x",pady=7)
+ ttk.Label(frame,text="Pairing token",style="Dark.TLabel").pack(anchor="w")
+ token=tk.Entry(frame,bg="#253a4e",fg="white",relief="flat",font=("Consolas",12))
+ token.insert(0,state.token);token.pack(fill="x",ipady=8,pady=7)
+ ttk.Label(frame,text="Transfers",style="Dark.TLabel").pack(anchor="w",pady=(12,3))
+ listing=tk.Listbox(frame,bg="#253a4e",fg="white",selectbackground="#17845a",borderwidth=0,highlightthickness=0)
+ listing.pack(fill="both",expand=True)
+ try:server=Server(("0.0.0.0",8765),state)
+ except OSError as e:
+  from tkinter import messagebox
+  messagebox.showerror("Cannot start receiver",str(e));root.destroy();return
  def update():
   state.destination=Path(dest.get());state.destination.mkdir(parents=True,exist_ok=True)
   listing.delete(0,tk.END)
-  for v in state.sessions.values():listing.insert(tk.END,f'{v["name"]} — {v["offset"]:,} / {v["size"]:,} bytes — {v["status"]}')
+  for v in state.sessions.values():listing.insert(tk.END,f'{v["name"]} - {v["offset"]:,} / {v["size"]:,} bytes - {v["status"]}')
   root.after(1000,update)
- try:
-  s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("1.1.1.1",80));ip=s.getsockname()[0];s.close()
- except OSError:ip="127.0.0.1"
- info.set(f"iPhone Safari: http://{ip}:8765\nPairing token: {state.token}")
  threading.Thread(target=server.serve_forever,daemon=True).start();update()
  root.protocol("WM_DELETE_WINDOW",lambda:(server.shutdown(),root.destroy()));root.mainloop()
 if __name__=="__main__":main()
