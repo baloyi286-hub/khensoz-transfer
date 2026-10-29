@@ -52,7 +52,7 @@ class State:
    else:
     # Legacy sessions may still have partials on C:. Copy safely across drives.
     import shutil
-    staging=target.parent/(".khensoz-"+k+".part")
+    staging=target.parent/(".khensoz-"+str(k)+".part")
     with p.open("rb") as src,staging.open("wb") as dst:
      shutil.copyfileobj(src,dst,1024*1024)
      dst.flush();os.fsync(dst.fileno())
