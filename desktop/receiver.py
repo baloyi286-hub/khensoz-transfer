@@ -1,0 +1,109 @@
+import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk
+from pathlib import Path
+from tkinter import filedialog,ttk
+from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
+from urllib.parse import urlsplit
+
+ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parents[1]))
+WEB=ROOT/"sender-pwa"
+LOCK=threading.RLock()
+class State:
+ def __init__(self,destination,port):
+  self.destination=Path(destination);self.destination.mkdir(parents=True,exist_ok=True)
+  self.port=port;self.token=secrets.token_urlsafe(18)
+  self.home=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"KhensozTransfer";self.home.mkdir(parents=True,exist_ok=True)
+  try:self.sessions=json.loads((self.home/"transfers.json").read_text())
+  except (OSError,ValueError):self.sessions={}
+ def save(self):
+  p=self.home/"transfers.json";tmp=p.with_suffix(".tmp");tmp.write_text(json.dumps(self.sessions));tmp.replace(p)
+ def create_or_resume(self,name,size,fingerprint):
+  name=Path(str(name).replace("\\","/")).name
+  if not name or name in (".","..") or len(name)>240 or not isinstance(size,int) or size<0 or size>10**15:raise ValueError("Invalid file")
+  with LOCK:
+   for k,v in self.sessions.items():
+    if (v["name"],v["size"],v["fingerprint"])==(name,size,fingerprint):
+     if v["status"]=="complete":return {"id":k,"offset":size,"complete":True}
+     p=Path(v["part"])
+     if p.exists():
+      v["offset"]=min(p.stat().st_size,size);self.save()
+      return {"id":k,"offset":v["offset"],"complete":False}
+   k=secrets.token_hex(16);p=self.home/(k+".part");p.touch()
+   target=self.destination/name;n=1
+   while target.exists() or any(v["target"]==str(target) for v in self.sessions.values()):
+    target=self.destination/(Path(name).stem+f" ({n})"+Path(name).suffix);n+=1
+   self.sessions[k]=dict(name=name,size=size,fingerprint=fingerprint,offset=0,part=str(p),target=str(target),status="receiving")
+   self.save();return {"id":k,"offset":0,"complete":False}
+ def append(self,k,offset,data):
+  with LOCK:
+   v=self.sessions[k];p=Path(v["part"])
+   actual=p.stat().st_size
+   if offset!=actual:raise ValueError(f"Offset mismatch: {actual}")
+   if actual+len(data)>v["size"]:raise ValueError("Exceeds file size")
+   with p.open("ab") as f:f.write(data);f.flush();os.fsync(f.fileno())
+   v["offset"]=actual+len(data);self.save();return v["offset"]
+ def finish(self,k):
+  with LOCK:
+   v=self.sessions[k];p=Path(v["part"])
+   if p.stat().st_size!=v["size"]:raise ValueError("Incomplete")
+   p.replace(v["target"]);v["status"]="complete";v["offset"]=v["size"];self.save()
+class Handler(BaseHTTPRequestHandler):
+ def send(self,code,data):
+  b=json.dumps(data).encode();self.send_response(code);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+ def auth(self):return secrets.compare_digest(self.headers.get("X-Transfer-Token",""),self.server.state.token)
+ def do_GET(self):
+  path=urlsplit(self.path).path
+  if path.startswith("/api/"):
+   if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
+   if path=="/api/status":return self.send(200,{"sessions":self.server.state.sessions})
+   return self.send(404,{"error":"Not found"})
+  file=WEB/(path.lstrip("/") or "index.html")
+  if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
+  b=file.read_bytes();mime={".html":"text/html",".js":"text/javascript",".css":"text/css",".svg":"image/svg+xml",".webmanifest":"application/manifest+json"}.get(file.suffix,"application/octet-stream")
+  self.send_response(200);self.send_header("Content-Type",mime);self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+ def do_POST(self):
+  if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
+  try:
+   length=int(self.headers.get("Content-Length","0"))
+   if length>4096:raise ValueError("Request too large")
+   data=json.loads(self.rfile.read(length))
+   if self.path=="/api/init":return self.send(200,self.server.state.create_or_resume(data["name"],data["size"],data["fingerprint"]))
+   if self.path.startswith("/api/finish/"):
+    self.server.state.finish(self.path.split("/")[-1]);return self.send(200,{"complete":True})
+   return self.send(404,{"error":"Not found"})
+  except (ValueError,KeyError,OSError) as e:return self.send(400,{"error":str(e)})
+ def do_PUT(self):
+  if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
+  try:
+   if not self.path.startswith("/api/chunk/"):return self.send(404,{"error":"Not found"})
+   n=int(self.headers.get("Content-Length","0"))
+   if n<0 or n>8*1024*1024:raise ValueError("Invalid chunk length")
+   data=self.rfile.read(n)
+   if len(data)!=n or hashlib.sha256(data).hexdigest()!=self.headers.get("X-Chunk-SHA256"):raise ValueError("Chunk checksum mismatch")
+   offset=self.server.state.append(self.path.split("/")[-1],int(self.headers["X-Chunk-Offset"]),data)
+   return self.send(200,{"offset":offset})
+  except (ValueError,KeyError,OSError) as e:return self.send(409,{"error":str(e)})
+class Server(ThreadingHTTPServer):
+ daemon_threads=True
+ def __init__(self,address,state):super().__init__(address,Handler);self.state=state
+def main():
+ root=tk.Tk();root.title("Khensoz Transfer");root.geometry("650x420")
+ dest=tk.StringVar(value=str(Path.home()/"Downloads"/"Khensoz Transfer"))
+ tk.Label(root,text="Khensoz Transfer",font=("Segoe UI",19,"bold")).pack(pady=15)
+ tk.Label(root,text="Destination folder").pack()
+ tk.Entry(root,textvariable=dest,width=72).pack()
+ tk.Button(root,text="Choose folder",command=lambda:dest.set(filedialog.askdirectory() or dest.get())).pack(pady=8)
+ info=tk.StringVar();tk.Label(root,textvariable=info,font=("Segoe UI",11)).pack(pady=10)
+ listing=tk.Listbox(root,width=90,height=10);listing.pack(padx=10,pady=10)
+ state=State(dest.get(),8765);server=Server(("0.0.0.0",8765),state)
+ def update():
+  state.destination=Path(dest.get());state.destination.mkdir(parents=True,exist_ok=True)
+  listing.delete(0,tk.END)
+  for v in state.sessions.values():listing.insert(tk.END,f'{v["name"]} — {v["offset"]:,} / {v["size"]:,} bytes — {v["status"]}')
+  root.after(1000,update)
+ try:
+  s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("1.1.1.1",80));ip=s.getsockname()[0];s.close()
+ except OSError:ip="127.0.0.1"
+ info.set(f"iPhone Safari: http://{ip}:8765\nPairing token: {state.token}")
+ threading.Thread(target=server.serve_forever,daemon=True).start();update()
+ root.protocol("WM_DELETE_WINDOW",lambda:(server.shutdown(),root.destroy()));root.mainloop()
+if __name__=="__main__":main()
