@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101c2a">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/style.css?v=7">
+<link rel="stylesheet" href="/style.css?v=8">
 <title>Khensoz Transfer</title>
 </head>
 <body>
@@ -24,7 +24,8 @@
 <label for="files">Other files</label>
 <input id="files" type="file" multiple>
 </div>
-<p id="pickerStatus" role="status">Select items using either button above.</p>
+<p id="pickerStatus" role="status">Picker ready. Select files above.</p>
+<p id="pickerDebug" role="status" style="font-size:12px;color:#a8c5d8">Picker diagnostic: waiting for selection</p>
 <p id="count" role="status">No files selected</p>
 <button id="start" type="button">Transfer all</button>
 </section>
@@ -32,6 +33,28 @@
 <p id="error" role="alert"></p>
 <p class="note">Keep Safari open and your iPhone awake during transfer. Interrupted files can resume after reselecting them.</p>
 </main>
-<script type="module" src="/src.js?v=7"></script>
+<script>
+/* Independent native-picker bridge. Runs even if the transfer module fails. */
+(function(){
+  function onPick(event){
+    var input=event.currentTarget;
+    var files=Array.prototype.slice.call(input.files||[]);
+    var status=document.getElementById("pickerStatus");
+    var debug=document.getElementById("pickerDebug");
+    if(debug)debug.textContent="Picker diagnostic: "+input.id+" returned "+files.length+" file(s)";
+    if(status)status.textContent=files.length?files.length+" selected from "+input.id:"No files selected";
+    if(files.length)window.dispatchEvent(new CustomEvent("khensoz-files-picked",{detail:{files:files,source:input.id}}));
+  }
+  ["photos","files"].forEach(function(id){
+    var input=document.getElementById(id);
+    if(input)input.addEventListener("change",onPick);
+  });
+  window.addEventListener("error",function(e){
+    var debug=document.getElementById("pickerDebug");
+    if(debug)debug.textContent="App error: "+e.message;
+  });
+})();
+</script>
+<script type="module" src="/src.js?v=8"></script>
 </body>
 </html>
