@@ -26,7 +26,7 @@ class State:
      if v["status"]=="complete":return {"id":k,"offset":size,"complete":True}
      p=Path(v["part"])
      if p.exists():
-      v["offset"]=min(p.stat().st_size,size);self.save()
+      v["offset"]=min(p.stat().st_size,size);v["resume_requested"]=False;self.save()
       return {"id":k,"offset":v["offset"],"complete":False}
    k=secrets.token_hex(16);part_dir=self.destination/".khensoz-partials";part_dir.mkdir(parents=True,exist_ok=True);p=part_dir/(k+".part");p.touch()
    target=self.destination/name;n=1
