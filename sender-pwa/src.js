@@ -72,6 +72,7 @@ function addFiles(selected){
   queue.push(item);row(item);
  }
  count();
+ window.dispatchEvent(new Event("khensoz-files-queued"));
  $("error").textContent=selected.length?"":"No files returned by the picker.";
 }
 window.addEventListener("khensoz-files-picked",event=>{
