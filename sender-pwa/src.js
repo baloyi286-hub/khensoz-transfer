@@ -65,6 +65,16 @@ $("connect").onclick=async()=>{
  try{await api("/api/status");$("connection").textContent="Connected to Windows receiver";$("error").textContent=""}
  catch(e){$("connection").textContent="Connection failed: "+e.message}
 };
+// QR pairing uses the URL fragment, which is not sent to the receiver.
+(function autoPairFromQR(){
+ const params=new URLSearchParams(window.location.hash.slice(1));
+ const scanned=params.get("token");
+ if(!scanned)return;
+ $("token").value=scanned;
+ history.replaceState(null,"",window.location.pathname+window.location.search);
+ // The click uses the same validated connection flow as manual pairing.
+ setTimeout(()=>$("connect").click(),0);
+})();
 function addFiles(selected){
  $("pickerStatus").textContent="Picker returned "+selected.length+" item(s)";
  for(const file of selected){
