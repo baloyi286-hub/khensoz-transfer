@@ -1,1 +1,34 @@
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#142438"><link rel="manifest" href="/manifest.webmanifest"><link rel="stylesheet" href="/style.css"><title>Khensoz Transfer</title></head><body><main><h1>↗ Khensoz Transfer</h1><p>iPhone → Windows • Direct Wi-Fi transfer</p><label>Pairing token <input id="token" placeholder="Token from desktop app" autocomplete="off"></label><button id="connect">Connect</button><p id="connection"></p><section><label class="pick">＋ Choose photos, videos or files<input id="files" type="file" multiple hidden></label><p id="count">No files selected</p><button id="start">Transfer all</button></section><div id="queue"></div><p class="note">Keep Safari open and your iPhone awake during transfer. Interrupted files can resume after reselecting them.</p></main><script type="module" src="/src.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101c2a">
+<meta http-equiv="Cache-Control" content="no-cache">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/style.css?v=3">
+<title>Khensoz Transfer</title>
+</head>
+<body>
+<main>
+<h1>Khensoz Transfer</h1>
+<p>iPhone to Windows - Direct Wi-Fi transfer</p>
+<label for="token">Pairing token</label>
+<input id="token" placeholder="Token from desktop app" autocomplete="off" autocapitalize="off" spellcheck="false">
+<button id="connect" type="button">Connect</button>
+<p id="connection" role="status"></p>
+<section>
+<button id="choosePhotos" class="pick" type="button">Choose photos and videos</button>
+<button id="chooseFiles" class="pick secondary" type="button">Choose files</button>
+<input id="photos" type="file" accept="image/*,video/*" multiple class="file-input">
+<input id="files" type="file" multiple class="file-input">
+<p id="count" role="status">No files selected</p>
+<button id="start" type="button">Transfer all</button>
+</section>
+<div id="queue"></div>
+<p id="error" role="alert"></p>
+<p class="note">Keep Safari open and your iPhone awake during transfer. Interrupted files can resume after reselecting them.</p>
+</main>
+<script type="module" src="/src.js?v=3"></script>
+</body>
+</html>
