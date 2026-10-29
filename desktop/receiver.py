@@ -63,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
   file=WEB/(path.lstrip("/") or "index.html")
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
   b=file.read_bytes();mime={".html":"text/html",".js":"text/javascript",".css":"text/css",".svg":"image/svg+xml",".webmanifest":"application/manifest+json"}.get(file.suffix,"application/octet-stream")
-  self.send_response(200);self.send_header("Content-Type",mime);self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+  self.send_response(200);self.send_header("Content-Type",mime+"; charset=utf-8" if mime.startswith(("text/","application/manifest")) else mime);self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
  def do_POST(self):
   if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
   try:
