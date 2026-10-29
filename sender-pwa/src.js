@@ -65,28 +65,19 @@ $("connect").onclick=async()=>{
  try{await api("/api/status");$("connection").textContent="Connected to Windows receiver";$("error").textContent=""}
  catch(e){$("connection").textContent="Connection failed: "+e.message}
 };
-function addFiles(input){
- const selected=Array.from(input.files||[]);
+function addFiles(selected){
  $("pickerStatus").textContent="Picker returned "+selected.length+" item(s)";
- for(const file of selected){const item={file,id:null,done:false,cancelled:false,removed:false,controller:null};queue.push(item);row(item)}
- count();$("error").textContent=selected.length?"":"No files returned by the picker. Try Choose files.";
- // Keep the selection intact until the next picker interaction; Safari may revoke file handles when cleared immediately.
+ for(const file of selected){
+  const item={file,id:null,done:false,cancelled:false,removed:false,controller:null};
+  queue.push(item);row(item);
+ }
+ count();
+ $("error").textContent=selected.length?"":"No files returned by the picker.";
 }
-for(const id of ["photos","files"]){
- const input=$(id);
- let lastSignature="";
- const receive=()=>{
-  const files=Array.from(input.files||[]);
-  if(!files.length)return;
-  const signature=files.map(f=>[f.name,f.size,f.lastModified].join(":")).join("|");
-  if(signature===lastSignature)return;
-  lastSignature=signature;
-  addFiles(input);
- };
- input.addEventListener("change",receive);
- input.addEventListener("input",receive);
- input.addEventListener("click",()=>{lastSignature="";});
-}
+window.addEventListener("khensoz-files-picked",event=>{
+ try{addFiles(event.detail.files||[])}
+ catch(e){$("pickerDebug").textContent="Queue error: "+e.message;throw e}
+});
 async function digest(buffer){return sha256(new Uint8Array(buffer))}
 async function fingerprint(file){
  const head=await file.slice(0,Math.min(file.size,65536)).arrayBuffer();
