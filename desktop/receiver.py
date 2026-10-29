@@ -2,7 +2,7 @@ import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subp
 from pathlib import Path
 from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,quote
 
 ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parents[1]))
 WEB=ROOT/"sender-pwa"
@@ -138,7 +138,7 @@ class Server(ThreadingHTTPServer):
  daemon_threads=True
  def __init__(self,address,state):super().__init__(address,Handler);self.state=state
 def main():
- root=tk.Tk();root.title("Khensoz Transfer");root.geometry("850x640");root.configure(bg="#101b2a")
+ root=tk.Tk();root.title("Khensoz Transfer");root.geometry("950x740");root.configure(bg="#101b2a")
  style=ttk.Style();style.theme_use("clam")
  style.configure("Dark.TFrame",background="#101b2a")
  style.configure("Dark.TLabel",background="#101b2a",foreground="#eaf4ff",font=("Segoe UI",11))
@@ -167,6 +167,37 @@ def main():
  ttk.Label(frame,text="Pairing token",style="Dark.TLabel").pack(anchor="w")
  token=tk.Entry(frame,bg="#253a4e",fg="white",relief="flat",font=("Consolas",12))
  token.insert(0,state.token);token.pack(fill="x",ipady=8,pady=7)
+ # The QR uses a URL fragment so the pairing token is never sent in the HTTP request.
+ qr_area=ttk.Frame(frame,style="Dark.TFrame")
+ qr_area.pack(fill="x",pady=(8,10))
+ qr_label=tk.Label(qr_area,bg="white",padx=8,pady=8)
+ qr_label.pack(side="left")
+ qr_text=ttk.Frame(qr_area,style="Dark.TFrame")
+ qr_text.pack(side="left",fill="x",expand=True,padx=(14,0))
+ ttk.Label(qr_text,text="Scan to connect",style="Dark.TLabel",font=("Segoe UI",12,"bold")).pack(anchor="w")
+ ttk.Label(qr_text,text="Scan with iPhone Camera. The sender opens with the pairing token filled in and connects automatically.",style="Dark.TLabel",wraplength=520,justify="left").pack(anchor="w",pady=(5,6))
+ qr_url=tk.StringVar()
+ ttk.Label(qr_text,textvariable=qr_url,style="Dark.TLabel",wraplength=520).pack(anchor="w")
+ def refresh_qr():
+  try:
+   import qrcode
+   from PIL import ImageTk
+   ips=sorted(addresses,key=lambda ip:(not ip.startswith(("192.168.","10.","172.")),ip))
+   if not ips:
+    qr_label.configure(text="No LAN IP",image="",fg="#172c3f")
+    qr_url.set("Connect the PC and iPhone to the same Wi-Fi.")
+    return
+   url="http://"+ips[0]+":8765/#token="+quote(state.token,safe="")
+   qr=qrcode.QRCode(box_size=5,border=2,error_correction=qrcode.constants.ERROR_CORRECT_M)
+   qr.add_data(url);qr.make(fit=True)
+   img=ImageTk.PhotoImage(qr.make_image(fill_color="#101b2a",back_color="white").convert("RGB"))
+   qr_label.configure(image=img,text="")
+   qr_label.image=img
+   qr_url.set("http://"+ips[0]+":8765/  •  Same Wi-Fi required")
+  except (ImportError,OSError,ValueError) as e:
+   qr_label.configure(text="QR unavailable",image="",fg="#172c3f")
+   qr_url.set("QR could not be generated: "+str(e))
+ refresh_qr()
  ttk.Label(frame,text="Transfers",style="Dark.TLabel").pack(anchor="w",pady=(12,3))
  # Each transfer has its own progress bar and context-sensitive actions.
  transfer_area=ttk.Frame(frame,style="Dark.TFrame")
