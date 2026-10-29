@@ -46,12 +46,19 @@ function row(item){
  const progress=document.createElement("progress");progress.max=100;progress.value=0;
  const status=document.createElement("small");status.textContent="Waiting";
  const actions=document.createElement("div");actions.className="actions";
- const cancel=document.createElement("button");cancel.type="button";cancel.className="danger";cancel.textContent="Cancel";
+ const resume=document.createElement("button");resume.type="button";resume.className="resume";resume.textContent="▶";resume.title="Resume interrupted transfer";resume.setAttribute("aria-label","Resume interrupted transfer");
+ resume.onclick=async()=>{
+  if(item.done||item.removed||item.cancelled)return;
+  item.retryRequested=true;
+  if(item.id){try{await api("/api/resume/"+item.id,"POST","{}",{"Content-Type":"application/json"})}catch(e){$("error").textContent=e.message}}
+  if(!busy)runQueue();
+ };
+ const cancel=document.createElement("button");cancel.type="button";cancel.className="danger";cancel.textContent="■";cancel.title="Cancel transfer and delete partial data";cancel.setAttribute("aria-label","Cancel transfer");
  cancel.onclick=()=>cancelItem(item);
- const remove=document.createElement("button");remove.type="button";remove.className="muted";remove.textContent="Remove";
+ const remove=document.createElement("button");remove.type="button";remove.className="muted";remove.textContent="✕";remove.title="Remove from transfer list";remove.setAttribute("aria-label","Remove transfer");
  remove.onclick=()=>removeItem(item);
- actions.append(cancel,remove);el.append(top,progress,status,actions);$("queue").append(el);
- item.el=el;item.cancelButton=cancel;return el;
+ actions.append(resume,cancel,remove);el.append(top,progress,status,actions);$("queue").append(el);
+ item.el=el;item.cancelButton=cancel;item.resumeButton=resume;return el;
 }
 $("connect").onclick=async()=>{
  token=$("token").value.trim();
@@ -84,7 +91,7 @@ async function transfer(item){
    const fp=await fingerprint(f);
    if(item.cancelled||item.removed)return;
    const init=await api("/api/init","POST",JSON.stringify({name:f.name,size:f.size,fingerprint:fp}),{"Content-Type":"application/json"});
-   item.id=init.id;
+   item.id=init.id;item.retryRequested=false;
    if(item.cancelled||item.removed){await api("/api/cancel/"+init.id,"POST","{}",{"Content-Type":"application/json"});return}
    let off=init.offset;
    while(off<f.size&&!item.cancelled&&!item.removed){
@@ -100,19 +107,34 @@ async function transfer(item){
    }
    if(item.cancelled||item.removed)return;
    if(!init.complete)await api("/api/finish/"+init.id,"POST","{}",{"Content-Type":"application/json"});
-   item.done=true;progress.value=100;status.textContent="Completed";item.cancelButton.disabled=true;return;
+   item.done=true;progress.value=100;status.textContent="Completed";item.cancelButton.disabled=true;item.resumeButton.disabled=true;return;
   }catch(e){
    item.controller=null;
    if(item.cancelled||item.removed)return;
    status.textContent="Retrying: "+e.message;
-   await wait(Math.min(15000,1000*2**Math.min(attempt++,4)));
+   if(attempt++>=3){status.textContent="Interrupted - tap ▶ to resume";return}
+   await wait(Math.min(15000,1000*2**Math.min(attempt,4)));
   }
  }
 }
-$("start").onclick=async()=>{
+async function runQueue(){
  if(busy)return;
  if(!token)return alert("Connect to Windows first");
  busy=true;$("start").disabled=true;
  try{for(const item of [...queue]){if(!item.done&&!item.cancelled&&!item.removed)await transfer(item)}}
  finally{busy=false;$("start").disabled=false;count()}
-};
+}
+$("start").onclick=runQueue;
+setInterval(async()=>{
+ if(!token||busy)return;
+ try{
+  const data=await api("/api/status");
+  for(const item of queue){
+   if(item.done||item.cancelled||item.removed||!item.id)continue;
+   const remote=data.sessions?.[item.id];
+   if(remote?.status==="cancelled"){item.cancelled=true;item.el.querySelector("small").textContent="Cancelled on Windows";count();continue}
+   if(!remote&&item.id){item.removed=true;item.el.remove();count();continue}
+   if(remote?.resume_requested){await runQueue();break}
+  }
+ }catch(e){}
+},3000);
