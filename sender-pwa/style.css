@@ -7,3 +7,5 @@
 
 .actions{display:flex;gap:9px;margin-top:12px}.actions button{padding:9px 13px;font-size:13px}.actions .danger{background:#9c3943}.actions .muted{background:#43566b}.actions button:disabled{opacity:.45;cursor:default}
 .item small{display:block;margin-top:9px;overflow-wrap:anywhere}.item .row strong{min-width:0;overflow-wrap:anywhere;font-size:15px}.item .row span{white-space:nowrap;flex-shrink:0;font-size:13px}.item .row{align-items:flex-start}
+
+.actions button{min-width:42px;min-height:40px;font-size:19px;padding:6px 10px}.actions .resume{background:#177e58}.actions button:focus-visible{outline:2px solid #9de6ff}@media(hover:hover){.actions button:hover{filter:brightness(1.2)}}
