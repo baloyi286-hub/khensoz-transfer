@@ -231,7 +231,7 @@ def main():
   if messagebox.askyesno("Cancel transfer","Cancel this transfer and delete its incomplete data?"):
    try:state.cancel(k)
    except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot cancel",str(e))
-   refresh()
+   root.after_idle(refresh)
  def resume_transfer(k):
   from tkinter import messagebox
   try:
@@ -243,7 +243,7 @@ def main():
   if messagebox.askyesno("Remove transfer","Remove this item from the list? Completed files are not deleted."):
    try:state.remove(k)
    except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot remove",str(e))
-   refresh()
+   root.after_idle(refresh)
  def icon_button(parent,symbol,tip,command):
   button=ttk.Button(parent,text=symbol,style="Dark.TButton",width=3,command=command)
   button.pack(side="left",padx=(0,6))
@@ -281,7 +281,7 @@ def main():
   return dict(card=card,title=title,percent=percent,bar=bar,detail=detail,resume=resume,cancel=cancel,remove=remove,open_file=open_file,open_folder=open_folder)
  def refresh():
   state.destination=Path(dest.get())
-  snapshot=state.snapshot()
+  snapshot={k:v for k,v in state.snapshot().items() if v["status"]!="complete"}
   for k in list(widgets):
    if k not in snapshot:
     widgets.pop(k)["card"].destroy()
@@ -298,7 +298,11 @@ def main():
    w["detail"].configure(text=f'{offset/1048576:,.1f} / {size/1048576:,.1f} MB  •  {v["status"].capitalize()}')
    for name,enabled in [("resume",not complete and v["status"]!="cancelled"),("cancel",not complete and v["status"]!="cancelled"),("open_file",complete),("open_folder",complete)]:
     w[name].configure(state="normal" if enabled else "disabled")
-  root.after(500,refresh)
+  if not refresh_timer[0]:refresh_timer[0]=True;root.after(500,timed_refresh)
+ def timed_refresh():
+  refresh_timer[0]=False
+  refresh()
+ refresh_timer=[False]
  try:server=Server(("0.0.0.0",8765),state)
  except OSError as e:
   from tkinter import messagebox
