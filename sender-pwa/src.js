@@ -1,7 +1,13 @@
 import {sha256} from './sha256.js';
 const $=id=>document.getElementById(id);
 const queue=[];
-let token="",busy=false;
+let token="",busy=false,wakeLock=null;
+const storageKey="khensoz-transfer-pending";
+function savePending(){try{sessionStorage.setItem(storageKey,JSON.stringify(queue.filter(x=>!x.done&&!x.removed&&!x.cancelled).map(x=>({name:x.file.name,size:x.file.size,lastModified:x.file.lastModified,id:x.id||null}))));}catch(e){}}
+function restoreNotice(){try{const saved=JSON.parse(sessionStorage.getItem(storageKey)||"[]");if(saved.length)$("pickerStatus").textContent="Interrupted transfer: select the same video again to resume from the saved Windows progress."; }catch(e){}}
+async function holdAwake(){try{if("wakeLock" in navigator&&!wakeLock&&document.visibilityState==="visible"){wakeLock=await navigator.wakeLock.request("screen");wakeLock.addEventListener("release",()=>{wakeLock=null});}}catch(e){}}
+async function releaseAwake(){if(wakeLock){try{await wakeLock.release()}catch(e){}wakeLock=null}}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&busy)holdAwake()});
 window.addEventListener("error",e=>{$("error").textContent="App error: "+e.message});
 window.addEventListener("unhandledrejection",e=>{$("error").textContent="App error: "+String(e.reason)});
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -16,6 +22,7 @@ async function cancelItem(item){
  if(item.done)return;
  if(!confirm("Cancel this transfer and delete its incomplete data?"))return;
  item.cancelled=true;
+ savePending();
  item.el.querySelector("small").textContent="Cancelling...";
  if(item.controller)item.controller.abort();
  if(item.id){
@@ -28,6 +35,7 @@ async function cancelItem(item){
 async function removeItem(item){
  if(!confirm("Remove this item from the list? Completed files on Windows will be kept."))return;
  item.removed=true;
+ savePending();
  if(item.controller)item.controller.abort();
  if(item.id){
   try{await api("/api/remove/"+item.id,"POST","{}",{"Content-Type":"application/json"})}
@@ -35,7 +43,7 @@ async function removeItem(item){
  }
  item.el.remove();
  const index=queue.indexOf(item);if(index>=0)queue.splice(index,1);
- count();
+ savePending();count();
 }
 function row(item){
  const f=item.file,el=document.createElement("div");el.className="item";
@@ -81,10 +89,13 @@ function addFiles(input){
  const selected=Array.from(input.files||[]);
  $("pickerStatus").textContent="Picker returned "+selected.length+" item(s)";
  for(const file of selected){
+  // Re-selecting a file replaces its stale browser handle, never creates a second queue row.
+  const existing=queue.find(x=>!x.done&&!x.cancelled&&!x.removed&&x.file.name===file.name&&x.file.size===file.size&&x.file.lastModified===file.lastModified);
+  if(existing){existing.file=file;continue}
   const item={file,id:null,done:false,cancelled:false,removed:false,controller:null};
   queue.push(item);row(item);
  }
- count();
+ savePending();count();
  $("error").textContent=selected.length?"":"No files returned by the picker. Try Choose files.";
 }
 for(const id of ["photos","files"]){
@@ -110,7 +121,9 @@ async function transfer(item){
    const fp=await fingerprint(f);
    if(item.cancelled||item.removed)return;
    const init=await api("/api/init","POST",JSON.stringify({name:f.name,size:f.size,fingerprint:fp}),{"Content-Type":"application/json"});
-   item.id=init.id;item.retryRequested=false;
+   item.id=init.id;item.retryRequested=false;savePending();
+   progress.value=f.size?init.offset/f.size*100:100;
+   status.textContent=init.offset?"Resuming from "+(init.offset/1048576).toFixed(1)+" MB":"Starting transfer";
    if(item.cancelled||item.removed){await api("/api/cancel/"+init.id,"POST","{}",{"Content-Type":"application/json"});return}
    let off=init.offset;
    while(off<f.size&&!item.cancelled&&!item.removed){
@@ -126,12 +139,14 @@ async function transfer(item){
    }
    if(item.cancelled||item.removed)return;
    if(!init.complete)await api("/api/finish/"+init.id,"POST","{}",{"Content-Type":"application/json"});
-   item.done=true;progress.value=100;status.textContent="Completed";item.cancelButton.disabled=true;item.resumeButton.disabled=true;return;
+   item.done=true;progress.value=100;status.textContent="Completed";
+   // Remove only the UI entry; Windows retains the completed file and its record.
+   item.el.remove();savePending();count();return;
   }catch(e){
    item.controller=null;
    if(item.cancelled||item.removed)return;
    status.textContent="Retrying: "+e.message;
-   if(attempt++>=3){status.textContent="Interrupted - tap ▶ to resume";return}
+   if(attempt++>=3){status.textContent="Interrupted - tap ▶ to resume";savePending();return}
    await wait(Math.min(15000,1000*2**Math.min(attempt,4)));
   }
  }
@@ -139,11 +154,12 @@ async function transfer(item){
 async function runQueue(){
  if(busy)return;
  if(!token)return alert("Connect to Windows first");
- busy=true;$("start").disabled=true;
+ busy=true;$("start").disabled=true;await holdAwake();
  try{for(const item of [...queue]){if(!item.done&&!item.cancelled&&!item.removed)await transfer(item)}}
- finally{busy=false;$("start").disabled=false;count()}
+ finally{busy=false;$("start").disabled=false;await releaseAwake();savePending();count()}
 }
 $("start").onclick=runQueue;
+restoreNotice();
 setInterval(async()=>{
  if(!token||busy)return;
  try{
