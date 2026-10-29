@@ -1,8 +1,14 @@
 import {sha256} from './sha256.js';
 const $=id=>document.getElementById(id),queue=[];let token="",busy=false;
+window.addEventListener("error",e=>{$("error").textContent="App error: "+e.message});
+window.addEventListener("unhandledrejection",e=>{$("error").textContent="App error: "+String(e.reason)});
 function row(f){let el=document.createElement("div");el.className="item";el.innerHTML='<div class="row"><strong></strong><span></span></div><progress max="100" value="0"></progress><small>Waiting</small>';el.querySelector("strong").textContent=f.name;el.querySelector("span").textContent=(f.size/1048576).toFixed(1)+" MB";$("queue").append(el);return el}
 $("connect").onclick=async()=>{token=$("token").value.trim();try{let r=await fetch("/api/status",{headers:{"X-Transfer-Token":token}});if(!r.ok)throw Error("Incorrect token");$("connection").textContent="✓ Connected to Windows receiver"}catch(e){$("connection").textContent="Connection failed: "+e.message}};
-$("files").onchange=e=>{for(const f of e.target.files)queue.push({file:f,el:row(f),done:false});$("count").textContent=queue.filter(x=>!x.done).length+" files queued";e.target.value=""};
+function addFiles(input){const selected=Array.from(input.files||[]);for(const f of selected){queue.push({file:f,el:row(f),done:false})}const pending=queue.filter(x=>!x.done).length;$("count").textContent=pending?pending+" file(s) queued":"No files selected";if(!selected.length)$("error").textContent="No files returned by iOS picker. Try Choose files instead.";else $("error").textContent="";input.value=""}
+$("choosePhotos").addEventListener("click",()=>{$("error").textContent="";$("photos").click()});
+$("chooseFiles").addEventListener("click",()=>{$("error").textContent="";$("files").click()});
+$("photos").addEventListener("change",()=>addFiles($("photos")));
+$("files").addEventListener("change",()=>addFiles($("files")));
 async function api(path,method,body,headers={}){let r=await fetch(path,{method,headers:{"X-Transfer-Token":token,...headers},body});let data=await r.json();if(!r.ok)throw Error(data.error||"HTTP "+r.status);return data}
 async function digest(buf){return sha256(new Uint8Array(buf))}
 async function fingerprint(f){let head=await f.slice(0,Math.min(f.size,65536)).arrayBuffer();let tail=await f.slice(Math.max(0,f.size-65536)).arrayBuffer();let a=new Uint8Array(head.byteLength+tail.byteLength);a.set(new Uint8Array(head));a.set(new Uint8Array(tail),head.byteLength);return digest(a)}
