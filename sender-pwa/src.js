@@ -1,9 +1,10 @@
+import {sha256} from './sha256.js';
 const $=id=>document.getElementById(id),queue=[];let token="",busy=false;
 function row(f){let el=document.createElement("div");el.className="item";el.innerHTML='<div class="row"><strong></strong><span></span></div><progress max="100" value="0"></progress><small>Waiting</small>';el.querySelector("strong").textContent=f.name;el.querySelector("span").textContent=(f.size/1048576).toFixed(1)+" MB";$("queue").append(el);return el}
 $("connect").onclick=async()=>{token=$("token").value.trim();try{let r=await fetch("/api/status",{headers:{"X-Transfer-Token":token}});if(!r.ok)throw Error("Incorrect token");$("connection").textContent="✓ Connected to Windows receiver"}catch(e){$("connection").textContent="Connection failed: "+e.message}};
 $("files").onchange=e=>{for(const f of e.target.files)queue.push({file:f,el:row(f),done:false});$("count").textContent=queue.filter(x=>!x.done).length+" files queued";e.target.value=""};
 async function api(path,method,body,headers={}){let r=await fetch(path,{method,headers:{"X-Transfer-Token":token,...headers},body});let data=await r.json();if(!r.ok)throw Error(data.error||"HTTP "+r.status);return data}
-async function digest(buf){let h=await crypto.subtle.digest("SHA-256",buf);return Array.from(new Uint8Array(h),x=>x.toString(16).padStart(2,"0")).join("")}
+async function digest(buf){return sha256(new Uint8Array(buf))}
 async function fingerprint(f){let head=await f.slice(0,Math.min(f.size,65536)).arrayBuffer();let tail=await f.slice(Math.max(0,f.size-65536)).arrayBuffer();let a=new Uint8Array(head.byteLength+tail.byteLength);a.set(new Uint8Array(head));a.set(new Uint8Array(tail),head.byteLength);return digest(a)}
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 async function transfer(item){let f=item.file,el=item.el,progress=el.querySelector("progress"),status=el.querySelector("small");let attempt=0;
