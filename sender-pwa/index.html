@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101c2a">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/style.css?v=8">
+<link rel="stylesheet" href="/style.css?v=9">
 <title>Khensoz Transfer</title>
 </head>
 <body>
@@ -24,6 +24,7 @@
 <label for="files">Other files</label>
 <input id="files" type="file" multiple>
 </div>
+<div id="pickerLoading" class="picker-loading" role="status" aria-live="polite" hidden><span class="spinner" aria-hidden="true"></span><span id="pickerLoadingText">Preparing selected files...</span></div>
 <p id="pickerStatus" role="status">Picker ready. Select files above.</p>
 <p id="pickerDebug" role="status" style="font-size:12px;color:#a8c5d8">Picker diagnostic: waiting for selection</p>
 <p id="count" role="status">No files selected</p>
@@ -36,25 +37,51 @@
 <script>
 /* Independent native-picker bridge. Runs even if the transfer module fails. */
 (function(){
+  var pickerActive=false;
+  function loading(show,message){
+    var el=document.getElementById("pickerLoading");
+    if(el)el.hidden=!show;
+    if(message){var t=document.getElementById("pickerLoadingText");if(t)t.textContent=message;}
+  }
   function onPick(event){
+    pickerActive=false;
+    loading(true,"Preparing selected files...");
     var input=event.currentTarget;
     var files=Array.prototype.slice.call(input.files||[]);
     var status=document.getElementById("pickerStatus");
     var debug=document.getElementById("pickerDebug");
     if(debug)debug.textContent="Picker diagnostic: "+input.id+" returned "+files.length+" file(s)";
     if(status)status.textContent=files.length?files.length+" selected from "+input.id:"No files selected";
-    if(files.length)window.dispatchEvent(new CustomEvent("khensoz-files-picked",{detail:{files:files,source:input.id}}));
+    if(files.length){
+      try{window.dispatchEvent(new CustomEvent("khensoz-files-picked",{detail:{files:files,source:input.id}}));}
+      finally{loading(false);}
+    }else{loading(false);}
+
   }
   ["photos","files"].forEach(function(id){
     var input=document.getElementById(id);
-    if(input)input.addEventListener("change",onPick);
+    if(input){
+      input.addEventListener("click",function(){
+        pickerActive=true;
+        loading(true,"Waiting for iPhone to prepare the selected video or files...");
+      });
+      input.addEventListener("change",onPick);
+      input.addEventListener("cancel",function(){pickerActive=false;loading(false);});
+    }
   });
+  document.addEventListener("visibilitychange",function(){
+    if(document.visibilityState==="visible"&&pickerActive){
+      var debug=document.getElementById("pickerDebug");
+      if(debug)debug.textContent="Waiting for Safari to return the selected files...";
+    }
+  });
+  window.addEventListener("khensoz-files-queued",function(){pickerActive=false;loading(false);});
   window.addEventListener("error",function(e){
     var debug=document.getElementById("pickerDebug");
     if(debug)debug.textContent="App error: "+e.message;
   });
 })();
 </script>
-<script type="module" src="/src.js?v=8"></script>
+<script type="module" src="/src.js?v=9"></script>
 </body>
 </html>
