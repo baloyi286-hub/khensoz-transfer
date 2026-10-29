@@ -138,7 +138,7 @@ class Server(ThreadingHTTPServer):
  daemon_threads=True
  def __init__(self,address,state):super().__init__(address,Handler);self.state=state
 def main():
- root=tk.Tk();root.title("Khensoz Transfer");root.geometry("750x530");root.configure(bg="#101b2a")
+ root=tk.Tk();root.title("Khensoz Transfer");root.geometry("850x640");root.configure(bg="#101b2a")
  style=ttk.Style();style.theme_use("clam")
  style.configure("Dark.TFrame",background="#101b2a")
  style.configure("Dark.TLabel",background="#101b2a",foreground="#eaf4ff",font=("Segoe UI",11))
@@ -168,68 +168,110 @@ def main():
  token=tk.Entry(frame,bg="#253a4e",fg="white",relief="flat",font=("Consolas",12))
  token.insert(0,state.token);token.pack(fill="x",ipady=8,pady=7)
  ttk.Label(frame,text="Transfers",style="Dark.TLabel").pack(anchor="w",pady=(12,3))
- listing=tk.Listbox(frame,bg="#253a4e",fg="white",selectbackground="#17845a",borderwidth=0,highlightthickness=0)
- listing.pack(fill="both",expand=True)
- controls=ttk.Frame(frame,style="Dark.TFrame");controls.pack(fill="x",pady=(10,0))
- def selected():
-  selection=listing.curselection()
-  if not selection:return None
-  keys=list(state.snapshot())
-  return keys[selection[0]] if selection[0]<len(keys) else None
- def resume_selected():
+ # Each transfer has its own progress bar and context-sensitive actions.
+ transfer_area=ttk.Frame(frame,style="Dark.TFrame")
+ transfer_area.pack(fill="both",expand=True)
+ canvas=tk.Canvas(transfer_area,bg="#101b2a",highlightthickness=0,borderwidth=0)
+ scrollbar=ttk.Scrollbar(transfer_area,orient="vertical",command=canvas.yview)
+ canvas.configure(yscrollcommand=scrollbar.set)
+ scrollbar.pack(side="right",fill="y")
+ canvas.pack(side="left",fill="both",expand=True)
+ cards=ttk.Frame(canvas,style="Dark.TFrame")
+ window_id=canvas.create_window((0,0),window=cards,anchor="nw")
+ cards.bind("<Configure>",lambda e:canvas.configure(scrollregion=canvas.bbox("all")))
+ canvas.bind("<Configure>",lambda e:canvas.itemconfigure(window_id,width=e.width))
+ widgets={}
+ def open_transfer(k,folder=False):
   from tkinter import messagebox
-  k=selected()
-  if not k:return
-  try:
-   state.request_resume(k)
-   messagebox.showinfo("Resume requested","Resume requested on iPhone. Keep the sender page open; if it was reloaded, reselect the same file first.")
-  except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot resume",str(e))
- def cancel_selected():
-  from tkinter import messagebox
-  k=selected()
-  if not k:return
-  try:
-   if messagebox.askyesno("Cancel transfer","Cancel this transfer and delete its incomplete data?"):
-    state.cancel(k);update()
-  except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot cancel",str(e))
- def remove_selected():
-  from tkinter import messagebox
-  k=selected()
-  if not k:return
-  if messagebox.askyesno("Remove transfer","Remove this item from the transfer list? Completed files will be kept."):
-   state.remove(k);update()
- def open_selected(folder=False):
-  from tkinter import messagebox
-  k=selected()
-  if not k:return
   v=state.snapshot().get(k)
   if not v or v["status"]!="complete":
-   messagebox.showinfo("Not completed","Opening files is available after transfer completes.");return
+   messagebox.showinfo("Not completed","You can open a file after its transfer completes.");return
   p=Path(v["target"])
-  if not p.exists():messagebox.showerror("File missing","The completed file was moved or deleted.");return
-  if folder:subprocess.Popen(["explorer.exe","/select,",str(p)])
-  else:os.startfile(str(p))
- ttk.Button(controls,text="▶",style="Dark.TButton",command=resume_selected).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="■",style="Dark.TButton",command=cancel_selected).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="✕",style="Dark.TButton",command=remove_selected).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="↗",style="Dark.TButton",command=lambda:open_selected(False)).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="▣",style="Dark.TButton",command=lambda:open_selected(True)).pack(side="left")
- tips=tk.StringVar(value="▶ Resume   ■ Cancel   ✕ Remove   ↗ Open file   ▣ Show in folder")
- ttk.Label(frame,textvariable=tips,style="Dark.TLabel",font=("Segoe UI",9)).pack(anchor="w",pady=(5,0))
- for widget,tip in zip(controls.winfo_children(),["Resume interrupted transfer","Cancel and delete incomplete data","Remove item from list","Open completed file","Show completed file in folder"]):
-  widget.bind("<Enter>",lambda e,t=tip:tips.set(t))
-  widget.bind("<Leave>",lambda e:tips.set("▶ Resume   ■ Cancel   ✕ Remove   ↗ Open file   ▣ Show in folder"))
+  if not p.exists():
+   messagebox.showerror("File missing","The completed file was moved or deleted.");return
+  try:
+   if folder:subprocess.Popen(["explorer.exe","/select,",str(p)])
+   else:os.startfile(str(p))
+  except OSError as e:messagebox.showerror("Cannot open",str(e))
+ def cancel_transfer(k):
+  from tkinter import messagebox
+  v=state.snapshot().get(k)
+  if not v or v["status"]=="complete":return
+  if messagebox.askyesno("Cancel transfer","Cancel this transfer and delete its incomplete data?"):
+   try:state.cancel(k)
+   except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot cancel",str(e))
+   refresh()
+ def resume_transfer(k):
+  from tkinter import messagebox
+  try:
+   state.request_resume(k)
+   messagebox.showinfo("Resume requested","Keep the iPhone sender page open with the file selected. If Safari was reloaded, reselect the file to resume.")
+  except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot resume",str(e))
+ def remove_transfer(k):
+  from tkinter import messagebox
+  if messagebox.askyesno("Remove transfer","Remove this item from the list? Completed files are not deleted."):
+   try:state.remove(k)
+   except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot remove",str(e))
+   refresh()
+ def icon_button(parent,symbol,tip,command):
+  button=ttk.Button(parent,text=symbol,style="Dark.TButton",width=3,command=command)
+  button.pack(side="left",padx=(0,6))
+  # Native tkinter tooltip: visible only while hovering.
+  popup={"window":None}
+  def enter(e):
+   if popup["window"] is not None:return
+   w=tk.Toplevel(root);w.wm_overrideredirect(True)
+   w.configure(bg="#eaf4ff")
+   tk.Label(w,text=tip,bg="#eaf4ff",fg="#15283a",padx=8,pady=5,font=("Segoe UI",9)).pack()
+   w.geometry("+%d+%d"%(e.x_root+10,e.y_root+18));popup["window"]=w
+  def leave(e):
+   if popup["window"] is not None:
+    popup["window"].destroy();popup["window"]=None
+  button.bind("<Enter>",enter);button.bind("<Leave>",leave)
+  return button
+ def make_card(k):
+  card=tk.Frame(cards,bg="#203348",padx=14,pady=10)
+  card.pack(fill="x",pady=(0,9))
+  header=tk.Frame(card,bg="#203348");header.pack(fill="x")
+  title=tk.Label(header,bg="#203348",fg="#f1f8ff",font=("Segoe UI",11,"bold"),anchor="w")
+  title.pack(side="left",fill="x",expand=True)
+  percent=tk.Label(header,bg="#203348",fg="#6ce1aa",font=("Segoe UI",11,"bold"))
+  percent.pack(side="right")
+  bar=ttk.Progressbar(card,mode="determinate",maximum=100)
+  bar.pack(fill="x",pady=(8,5))
+  detail=tk.Label(card,bg="#203348",fg="#c0d1e2",font=("Segoe UI",9),anchor="w")
+  detail.pack(fill="x")
+  actions=tk.Frame(card,bg="#203348");actions.pack(anchor="w",pady=(9,0))
+  resume=icon_button(actions,"▶","Resume interrupted transfer",lambda:resume_transfer(k))
+  cancel=icon_button(actions,"■","Cancel transfer and delete incomplete data",lambda:cancel_transfer(k))
+  remove=icon_button(actions,"✕","Remove from transfer list",lambda:remove_transfer(k))
+  open_file=icon_button(actions,"↗","Open completed file",lambda:open_transfer(k))
+  open_folder=icon_button(actions,"▣","Show completed file in folder",lambda:open_transfer(k,True))
+  return dict(card=card,title=title,percent=percent,bar=bar,detail=detail,resume=resume,cancel=cancel,remove=remove,open_file=open_file,open_folder=open_folder)
+ def refresh():
+  state.destination=Path(dest.get())
+  snapshot=state.snapshot()
+  for k in list(widgets):
+   if k not in snapshot:
+    widgets.pop(k)["card"].destroy()
+  for k,v in snapshot.items():
+   if k not in widgets:widgets[k]=make_card(k)
+   w=widgets[k]
+   size=max(0,int(v.get("size",0)))
+   offset=min(size,max(0,int(v.get("offset",0))))
+   pct=(offset/size*100) if size else (100 if v["status"]=="complete" else 0)
+   complete=v["status"]=="complete"
+   w["title"].configure(text=v["name"])
+   w["percent"].configure(text=f"{pct:.0f}%")
+   w["bar"]["value"]=pct
+   w["detail"].configure(text=f'{offset/1048576:,.1f} / {size/1048576:,.1f} MB  •  {v["status"].capitalize()}')
+   for name,enabled in [("resume",not complete and v["status"]!="cancelled"),("cancel",not complete and v["status"]!="cancelled"),("open_file",complete),("open_folder",complete)]:
+    w[name].configure(state="normal" if enabled else "disabled")
+  root.after(500,refresh)
  try:server=Server(("0.0.0.0",8765),state)
  except OSError as e:
   from tkinter import messagebox
   messagebox.showerror("Cannot start receiver",str(e));root.destroy();return
- def update():
-  state.destination=Path(dest.get());state.destination.mkdir(parents=True,exist_ok=True)
-  current=listing.curselection()
-  listing.delete(0,tk.END)
-  for v in state.snapshot().values():listing.insert(tk.END,f'{v["name"]} - {v["offset"]:,} / {v["size"]:,} bytes - {v["status"]}')
-  if current and current[0]<listing.size():listing.selection_set(current[0])
-  root.after(1000,update)
- threading.Thread(target=server.serve_forever,daemon=True).start();update()
+ threading.Thread(target=server.serve_forever,daemon=True).start();refresh()
  root.protocol("WM_DELETE_WINDOW",lambda:(server.shutdown(),root.destroy()));root.mainloop()
 if __name__=="__main__":main()
