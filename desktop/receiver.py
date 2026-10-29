@@ -1,8 +1,29 @@
-import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subprocess
+import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subprocess,ctypes,time
 from pathlib import Path
 from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from urllib.parse import urlsplit,quote
+
+# Windows power APIs: keep the display and system awake while the receiver runs.
+ES_CONTINUOUS=0x80000000
+ES_SYSTEM_REQUIRED=0x00000001
+ES_DISPLAY_REQUIRED=0x00000002
+def keep_windows_awake(enabled):
+ if sys.platform!="win32":return
+ try:
+  flags=ES_CONTINUOUS | (ES_SYSTEM_REQUIRED|ES_DISPLAY_REQUIRED if enabled else 0)
+  ctypes.windll.kernel32.SetThreadExecutionState(flags)
+ except (AttributeError,OSError):pass
+
+def battery_status():
+ """Return (percentage, plugged_in), or None on desktops without a battery."""
+ if sys.platform!="win32":return None
+ class SYSTEM_POWER_STATUS(ctypes.Structure):
+  _fields_=[("ACLineStatus",ctypes.c_ubyte),("BatteryFlag",ctypes.c_ubyte),("BatteryLifePercent",ctypes.c_ubyte),("SystemStatusFlag",ctypes.c_ubyte),("BatteryLifeTime",ctypes.c_ulong),("BatteryFullLifeTime",ctypes.c_ulong)]
+ status=SYSTEM_POWER_STATUS()
+ if not ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(status)):return None
+ if status.BatteryLifePercent==255 or status.ACLineStatus==255:return None
+ return int(status.BatteryLifePercent),status.ACLineStatus==1
 
 ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parents[1]))
 WEB=ROOT/"sender-pwa"
@@ -152,6 +173,35 @@ def main():
  ttk.Entry(frame,textvariable=dest,style="Dark.TEntry").pack(fill="x",pady=7)
  ttk.Button(frame,text="Choose folder",style="Dark.TButton",command=lambda:dest.set(filedialog.askdirectory() or dest.get())).pack(anchor="w",pady=(0,16))
  state=State(dest.get(),8765)
+ # Power protection is active only while this window is running.
+ keep_windows_awake(True)
+ power_row=ttk.Frame(frame,style="Dark.TFrame")
+ power_row.pack(fill="x",pady=(0,10))
+ awake=tk.BooleanVar(value=True)
+ ttk.Checkbutton(power_row,text="Keep laptop and display awake while app is running",variable=awake,command=lambda:keep_windows_awake(awake.get())).pack(anchor="w")
+ battery_label=tk.StringVar(value="Battery: checking...")
+ ttk.Label(power_row,textvariable=battery_label,style="Dark.TLabel").pack(anchor="w",pady=(5,0))
+ last_alarm=[0.0]
+ def monitor_battery():
+  try:
+   status=battery_status()
+   if status is None:battery_label.set("Battery status unavailable (or no battery detected)")
+   else:
+    percent,plugged=status
+    battery_label.set(f"Battery: {percent}%  •  "+("Plugged in" if plugged else "On battery"))
+    # Audible warning below 20%, repeated at most once every 60 seconds.
+    if not plugged and percent<=20 and time.monotonic()-last_alarm[0]>=60:
+     last_alarm[0]=time.monotonic()
+     def sound_alarm():
+      try:
+       import winsound
+       for frequency in (1100,850,1100):
+        winsound.Beep(frequency,300)
+      except (ImportError,RuntimeError,OSError):pass
+     threading.Thread(target=sound_alarm,daemon=True).start()
+  except (OSError,AttributeError,ValueError):battery_label.set("Battery status unavailable")
+  root.after(10000,monitor_battery)
+ monitor_battery()
  addresses=set()
  try:
   for item in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET):
@@ -308,5 +358,6 @@ def main():
   from tkinter import messagebox
   messagebox.showerror("Cannot start receiver",str(e));root.destroy();return
  threading.Thread(target=server.serve_forever,daemon=True).start();refresh()
- root.protocol("WM_DELETE_WINDOW",lambda:(server.shutdown(),root.destroy()));root.mainloop()
+ root.protocol("WM_DELETE_WINDOW",lambda:(keep_windows_awake(False),server.shutdown(),root.destroy()));root.mainloop()
+ keep_windows_awake(False)
 if __name__=="__main__":main()
