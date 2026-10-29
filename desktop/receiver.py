@@ -79,6 +79,12 @@ class State:
    if v["status"]=="receiving":self.cancel(k)
    del self.sessions[k]
    self.save()
+ def request_resume(self,k):
+  with LOCK:
+   v=self.sessions[k]
+   if v["status"]!="receiving":raise ValueError("Only incomplete transfers can resume; cancelled transfers have no partial data")
+   v["resume_requested"]=True
+   self.save()
  def snapshot(self):
   with LOCK:
    return {k:dict(v) for k,v in self.sessions.items()}
@@ -107,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
    if length>4096:raise ValueError("Request too large")
    data=json.loads(self.rfile.read(length))
    if self.path=="/api/init":return self.send(200,self.server.state.create_or_resume(data["name"],data["size"],data["fingerprint"]))
+   if self.path.startswith("/api/resume/"):
+    self.server.state.request_resume(self.path.split("/")[-1]);return self.send(200,{"requested":True})
    if self.path.startswith("/api/cancel/"):
     self.server.state.cancel(self.path.split("/")[-1]);return self.send(200,{"cancelled":True})
    if self.path.startswith("/api/remove/"):
@@ -168,6 +176,14 @@ def main():
   if not selection:return None
   keys=list(state.snapshot())
   return keys[selection[0]] if selection[0]<len(keys) else None
+ def resume_selected():
+  from tkinter import messagebox
+  k=selected()
+  if not k:return
+  try:
+   state.request_resume(k)
+   messagebox.showinfo("Resume requested","Resume requested on iPhone. Keep the sender page open; if it was reloaded, reselect the same file first.")
+  except (ValueError,KeyError,OSError) as e:messagebox.showerror("Cannot resume",str(e))
  def cancel_selected():
   from tkinter import messagebox
   k=selected()
@@ -193,10 +209,16 @@ def main():
   if not p.exists():messagebox.showerror("File missing","The completed file was moved or deleted.");return
   if folder:subprocess.Popen(["explorer.exe","/select,",str(p)])
   else:os.startfile(str(p))
- ttk.Button(controls,text="Cancel selected",style="Dark.TButton",command=cancel_selected).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="Remove from list",style="Dark.TButton",command=remove_selected).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="Open file",style="Dark.TButton",command=lambda:open_selected(False)).pack(side="left",padx=(0,8))
- ttk.Button(controls,text="Show in folder",style="Dark.TButton",command=lambda:open_selected(True)).pack(side="left")
+ ttk.Button(controls,text="▶",style="Dark.TButton",command=resume_selected).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="■",style="Dark.TButton",command=cancel_selected).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="✕",style="Dark.TButton",command=remove_selected).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="↗",style="Dark.TButton",command=lambda:open_selected(False)).pack(side="left",padx=(0,8))
+ ttk.Button(controls,text="▣",style="Dark.TButton",command=lambda:open_selected(True)).pack(side="left")
+ tips=tk.StringVar(value="▶ Resume   ■ Cancel   ✕ Remove   ↗ Open file   ▣ Show in folder")
+ ttk.Label(frame,textvariable=tips,style="Dark.TLabel",font=("Segoe UI",9)).pack(anchor="w",pady=(5,0))
+ for widget,tip in zip(controls.winfo_children(),["Resume interrupted transfer","Cancel and delete incomplete data","Remove item from list","Open completed file","Show completed file in folder"]):
+  widget.bind("<Enter>",lambda e,t=tip:tips.set(t))
+  widget.bind("<Leave>",lambda e:tips.set("▶ Resume   ■ Cancel   ✕ Remove   ↗ Open file   ▣ Show in folder"))
  try:server=Server(("0.0.0.0",8765),state)
  except OSError as e:
   from tkinter import messagebox
