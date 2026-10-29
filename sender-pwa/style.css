@@ -5,18 +5,4 @@
 .picker input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:100px}
 #pickerStatus{font-size:13px;color:#a8c5d8}
 
-.actions{display:flex;gap:9px;margin-top:12px}.actions button{padding:9px 13px;font-size:13px}.actions .danger{background:#9c3943}.actions .muted{background:#43566b}.actions button:disabled{opacity:.45;cursor:default}
-.item small{display:block;margin-top:9px;overflow-wrap:anywhere}.item .row strong{min-width:0;overflow-wrap:anywhere;font-size:15px}.item .row span{white-space:nowrap;flex-shrink:0;font-size:13px}.item .row{align-items:flex-start}
-
-.actions button{min-width:42px;min-height:40px;font-size:19px;padding:6px 10px}.actions .resume{background:#177e58}.actions button:focus-visible{outline:2px solid #9de6ff}@media(hover:hover){.actions button:hover{filter:brightness(1.2)}}
-/* Native iOS file pickers: no overlay, hidden input, or synthetic click. */
-.picker-group{display:grid;gap:9px}
-.picker-group label{font-size:14px;color:#c8d8e7}
-.picker-group input[type=file]{display:block;position:static;opacity:1;width:100%;height:auto;font-size:14px;color:#dceafa;cursor:pointer;background:#15293b;border:1px solid #38536b;border-radius:10px;padding:10px}
-.picker-group input[type=file]::file-selector-button{border:0;border-radius:8px;background:#2e5d84;color:white;font-weight:650;padding:12px;margin-right:10px}
-
-.picker-loading{display:flex;align-items:center;gap:10px;padding:12px;margin-top:12px;border-radius:10px;background:#193c4d;color:#e7f9ff;font-size:14px}
-.picker-loading[hidden]{display:none}
-.spinner{display:inline-block;flex-shrink:0;width:20px;height:20px;border:3px solid #64899b;border-top-color:#42dfa5;border-radius:50%;animation:picker-spin .8s linear infinite}
-@keyframes picker-spin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.spinner{animation:none;border-top-color:#42dfa5}}
+.actions{display:flex;gap:9px;margin-top:12px}.actions button{padding:9px 13px;font-size:19px;min-width:42px;min-height:40px}.actions .danger{background:#9c3943}.actions .muted{background:#43566b}.actions .resume{background:#177e58}.actions button:disabled{opacity:.45;cursor:default}.item small{display:block;margin-top:9px;overflow-wrap:anywhere}.item .row strong{min-width:0;overflow-wrap:anywhere}.item .row span{white-space:nowrap;flex-shrink:0;font-size:13px}
