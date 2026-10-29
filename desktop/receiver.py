@@ -27,7 +27,7 @@ class State:
      if p.exists():
       v["offset"]=min(p.stat().st_size,size);self.save()
       return {"id":k,"offset":v["offset"],"complete":False}
-   k=secrets.token_hex(16);p=self.home/(k+".part");p.touch()
+   k=secrets.token_hex(16);part_dir=self.destination/".khensoz-partials";part_dir.mkdir(parents=True,exist_ok=True);p=part_dir/(k+".part");p.touch()
    target=self.destination/name;n=1
    while target.exists() or any(v["target"]==str(target) for v in self.sessions.values()):
     target=self.destination/(Path(name).stem+f" ({n})"+Path(name).suffix);n+=1
@@ -45,7 +45,20 @@ class State:
   with LOCK:
    v=self.sessions[k];p=Path(v["part"])
    if p.stat().st_size!=v["size"]:raise ValueError("Incomplete")
-   p.replace(v["target"]);v["status"]="complete";v["offset"]=v["size"];self.save()
+   target=Path(v["target"])
+   target.parent.mkdir(parents=True,exist_ok=True)
+   if p.resolve().anchor.lower()==target.resolve().anchor.lower():
+    p.replace(target)
+   else:
+    # Legacy sessions may still have partials on C:. Copy safely across drives.
+    import shutil
+    staging=target.parent/(".khensoz-"+k+".part")
+    with p.open("rb") as src,staging.open("wb") as dst:
+     shutil.copyfileobj(src,dst,1024*1024)
+     dst.flush();os.fsync(dst.fileno())
+    staging.replace(target)
+    p.unlink()
+   v["status"]="complete";v["offset"]=v["size"];self.save()
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,format,*args):
   try:
