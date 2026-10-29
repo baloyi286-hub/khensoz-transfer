@@ -75,20 +75,25 @@ $("connect").onclick=async()=>{
  // The click uses the same validated connection flow as manual pairing.
  setTimeout(()=>$("connect").click(),0);
 })();
-function addFiles(selected){
+// Restore the original iPhone picker path: native input inside a label,
+// with direct change/input listeners. Transfer actions are independent.
+function addFiles(input){
+ const selected=Array.from(input.files||[]);
  $("pickerStatus").textContent="Picker returned "+selected.length+" item(s)";
  for(const file of selected){
   const item={file,id:null,done:false,cancelled:false,removed:false,controller:null};
   queue.push(item);row(item);
  }
  count();
- window.dispatchEvent(new Event("khensoz-files-queued"));
- $("error").textContent=selected.length?"":"No files returned by the picker.";
+ $("error").textContent=selected.length?"":"No files returned by the picker. Try Choose files.";
 }
-window.addEventListener("khensoz-files-picked",event=>{
- try{addFiles(event.detail.files||[])}
- catch(e){$("pickerDebug").textContent="Queue error: "+e.message;throw e}
-});
+for(const id of ["photos","files"]){
+ const input=$(id);
+ input.addEventListener("change",()=>addFiles(input));
+ input.addEventListener("input",()=>{
+  if(input.files?.length&&!queue.some(x=>x.file===input.files[0]))addFiles(input);
+ });
+}
 async function digest(buffer){return sha256(new Uint8Array(buffer))}
 async function fingerprint(file){
  const head=await file.slice(0,Math.min(file.size,65536)).arrayBuffer();
