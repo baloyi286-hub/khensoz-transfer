@@ -127,6 +127,26 @@ class Handler(BaseHTTPRequestHandler):
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
   b=file.read_bytes();mime={".html":"text/html",".js":"text/javascript",".css":"text/css",".svg":"image/svg+xml",".webmanifest":"application/manifest+json"}.get(file.suffix,"application/octet-stream")
   self.send_response(200);self.send_header("Content-Type",mime+"; charset=utf-8" if mime.startswith(("text/","application/manifest")) else mime);self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+ def detect_media_extension(self,path):
+  # Detect common photo/video formats from file signatures, not the shortcut filename.
+  with path.open("rb") as stream:head=stream.read(4096)
+  if head.startswith(b"\\xff\\xd8\\xff"):return ".jpg"
+  if head.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):return ".png"
+  if head.startswith((b"GIF87a",b"GIF89a")):return ".gif"
+  if head.startswith(b"RIFF") and head[8:12]==b"WEBP":return ".webp"
+  if head.startswith(b"BM"):return ".bmp"
+  if head.startswith((b"II*\\x00",b"MM\\x00*")):return ".tiff"
+  if head.startswith(b"\\x00\\x00\\x01\\x00"):return ".ico"
+  if head.startswith(b"\\x1a\\x45\\xdf\\xa3"):return ".mkv"
+  if head.startswith(b"RIFF") and head[8:12]==b"AVI ":return ".avi"
+  if head[4:8]==b"ftyp":
+   brands=head[8:32]
+   if any(b in brands for b in (b"heic",b"heix",b"hevc",b"hevx",b"mif1",b"msf1")):return ".heic"
+   if b"avif" in brands or b"avis" in brands:return ".avif"
+   if b"qt  " in brands:return ".mov"
+   if b"M4V " in brands:return ".m4v"
+   return ".mp4"
+  return ""
  def shortcut_upload(self):
   # Apple Shortcuts: POST raw file bytes with X-Filename and X-Transfer-Token.
   # Stream to disk instead of buffering large iPhone videos in RAM.
@@ -158,6 +178,21 @@ class Handler(BaseHTTPRequestHandler):
       with LOCK:
        state.sessions[k]["offset"]=length-remaining
        state.save()
+    # Shortcut's Get Name often strips .HEIC/.JPG/.MOV. Restore it after upload.
+    if not Path(name).suffix:
+     detected=self.detect_media_extension(part)
+     if detected:
+      with LOCK:
+       original=Path(state.sessions[k]["target"])
+       corrected=original.with_name(original.name+detected)
+       counter=1
+       while corrected.exists() or any(v["target"]==str(corrected) for key,v in state.sessions.items() if key!=k):
+        corrected=original.with_name(original.name+f" ({counter})"+detected)
+        counter+=1
+       state.sessions[k]["target"]=str(corrected)
+       state.sessions[k]["name"]=corrected.name
+       state.save()
+       name=corrected.name
     state.finish(k)
     return self.send(200,{"complete":True,"name":name,"bytes":length})
    except (OSError,ConnectionError,ValueError):
