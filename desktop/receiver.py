@@ -127,8 +127,46 @@ class Handler(BaseHTTPRequestHandler):
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
   b=file.read_bytes();mime={".html":"text/html",".js":"text/javascript",".css":"text/css",".svg":"image/svg+xml",".webmanifest":"application/manifest+json"}.get(file.suffix,"application/octet-stream")
   self.send_response(200);self.send_header("Content-Type",mime+"; charset=utf-8" if mime.startswith(("text/","application/manifest")) else mime);self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+ def shortcut_upload(self):
+  # Apple Shortcuts: POST raw file bytes with X-Filename and X-Transfer-Token.
+  # Stream to disk instead of buffering large iPhone videos in RAM.
+  from urllib.parse import unquote
+  name=Path(unquote(self.headers.get("X-Filename","").replace("\\\\","/"))).name
+  try:
+   length=int(self.headers.get("Content-Length","-1"))
+   if not name or name in (".","..") or len(name)>240 or length<0 or length>10**15:
+    return self.send(400,{"error":"Provide X-Filename and a valid Content-Length"})
+   state=self.server.state
+   with LOCK:
+    target=state.destination/name
+    n=1
+    while target.exists() or any(v["target"]==str(target) for v in state.sessions.values()):
+     target=state.destination/(Path(name).stem+f" ({n})"+Path(name).suffix);n+=1
+    k=secrets.token_hex(16)
+    part_dir=state.destination/".khensoz-partials";part_dir.mkdir(parents=True,exist_ok=True)
+    part=part_dir/(k+".part")
+    state.sessions[k]=dict(name=name,size=length,fingerprint="shortcut:"+k,offset=0,part=str(part),target=str(target),status="receiving")
+    state.save()
+   remaining=length
+   try:
+    with part.open("wb") as out:
+     while remaining:
+      chunk=self.rfile.read(min(1024*1024,remaining))
+      if not chunk:raise ConnectionError("Upload disconnected")
+      out.write(chunk)
+      remaining-=len(chunk)
+      with LOCK:
+       state.sessions[k]["offset"]=length-remaining
+       state.save()
+    state.finish(k)
+    return self.send(200,{"complete":True,"name":name,"bytes":length})
+   except (OSError,ConnectionError,ValueError):
+    # Keep incomplete data visible in Windows for diagnosis.
+    return self.send(409,{"error":"Shortcut upload interrupted. Please retry the file."})
+  except (ValueError,OSError) as e:return self.send(400,{"error":str(e)})
  def do_POST(self):
   if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
+  if urlsplit(self.path).path=="/api/shortcut":return self.shortcut_upload()
   try:
    length=int(self.headers.get("Content-Length","0"))
    if length>4096:raise ValueError("Request too large")
