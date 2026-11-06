@@ -23,3 +23,16 @@ progress{accent-color:#a6e22e}
 .actions .danger{background:#f92672;color:#fff}
 .actions .muted{background:#75715e;color:#fff}
 .actions .resume{background:#a6e22e;color:#191a21}
+
+/* Optional high-quality camera panel */
+.hq-button{display:inline-block;background:#f92672;color:#fff;margin:4px 0}
+.hq-camera{margin-top:14px;padding:14px;border:1px solid #75715e;border-radius:12px;background:#202127}
+.hq-camera[hidden]{display:none}
+#hqPreview{display:block;width:100%;max-height:55vh;object-fit:contain;background:#08090c;border-radius:10px}
+#hqPreset{display:block;width:100%;margin:9px 0;padding:12px;background:#272822;color:#f8f8f2;border:1px solid #75715e;border-radius:8px}
+#hqActual{color:#66d9ef;font-weight:600}
+#hqStatus{color:#e6db74}
+.hq-actions{display:flex;flex-wrap:wrap;gap:9px}
+.hq-actions button:disabled{opacity:.4}
+#hqStop{background:#fd971f}
+#hqClose{background:#75715e;color:#fff}
