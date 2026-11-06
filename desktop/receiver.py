@@ -1,4 +1,4 @@
-import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subprocess,ctypes,time
+import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subprocess,ctypes,time,ssl
 from pathlib import Path
 from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
@@ -297,8 +297,10 @@ def main():
  try:
   s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.connect(("1.1.1.1",80));addresses.add(s.getsockname()[0]);s.close()
  except OSError:pass
+ cert_file=state.home/"lan-cert.pem";key_file=state.home/"lan-key.pem"
+ https_enabled=cert_file.is_file() and key_file.is_file()
  ttk.Label(frame,text="Open one of these URLs on iPhone Safari (same Wi-Fi)",style="Dark.TLabel").pack(anchor="w")
- info=tk.Label(frame,text="\\n".join("http://"+ip+":8765" for ip in sorted(addresses)) or "No LAN IP detected",bg="#272822",fg="#a6e22e",font=("Consolas",12),justify="left",anchor="w",padx=12,pady=12)
+ info=tk.Label(frame,text="\\n".join(("https://"+ip+":8766" if https_enabled else "http://"+ip+":8765") for ip in sorted(addresses)) or "No LAN IP detected",bg="#272822",fg="#a6e22e",font=("Consolas",12),justify="left",anchor="w",padx=12,pady=12)
  info.pack(fill="x",pady=7)
  ttk.Label(frame,text="Local-network access: anyone who can reach this port can upload files.",style="Dark.TLabel",wraplength=830).pack(anchor="w",pady=(3,8))
  qr_area=ttk.Frame(frame,style="Dark.TFrame")
@@ -320,13 +322,13 @@ def main():
     qr_label.configure(text="No LAN IP",image="",fg="#172c3f")
     qr_url.set("Connect the PC and iPhone to the same Wi-Fi.")
     return
-   url="http://"+ips[0]+":8765/"
+   url=("https://"+ips[0]+":8766/" if https_enabled else "http://"+ips[0]+":8765/")
    qr=qrcode.QRCode(box_size=5,border=2,error_correction=qrcode.constants.ERROR_CORRECT_M)
    qr.add_data(url);qr.make(fit=True)
    img=ImageTk.PhotoImage(qr.make_image(fill_color="#101b2a",back_color="white").convert("RGB"))
    qr_label.configure(image=img,text="")
    qr_label.image=img
-   qr_url.set("http://"+ips[0]+":8765/  •  Same Wi-Fi required")
+   qr_url.set(url+"  •  Same Wi-Fi required")
   except (ImportError,OSError,ValueError) as e:
    qr_label.configure(text="QR unavailable",image="",fg="#172c3f")
    qr_url.set("QR could not be generated: "+str(e))
@@ -432,7 +434,21 @@ def main():
  except OSError as e:
   from tkinter import messagebox
   messagebox.showerror("Cannot start receiver",str(e));root.destroy();return
- threading.Thread(target=server.serve_forever,daemon=True).start();refresh()
- root.protocol("WM_DELETE_WINDOW",lambda:(keep_windows_awake(False),server.shutdown(),root.destroy()));root.mainloop()
+ threading.Thread(target=server.serve_forever,daemon=True).start()
+ https_server=None
+ if https_enabled:
+  try:
+   https_server=Server(("0.0.0.0",8766),state)
+   tls=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+   tls.load_cert_chain(str(cert_file),str(key_file))
+   https_server.socket=tls.wrap_socket(https_server.socket,server_side=True)
+   threading.Thread(target=https_server.serve_forever,daemon=True).start()
+  except (OSError,ssl.SSLError) as e:
+   from tkinter import messagebox
+   messagebox.showwarning("HTTPS unavailable","Secure camera server could not start: "+str(e))
+   if https_server:https_server.server_close()
+   https_server=None
+ refresh()
+ root.protocol("WM_DELETE_WINDOW",lambda:(keep_windows_awake(False),server.shutdown(),https_server.shutdown() if https_server else None,root.destroy()));root.mainloop()
  keep_windows_awake(False)
 if __name__=="__main__":main()
