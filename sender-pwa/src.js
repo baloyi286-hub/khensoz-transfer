@@ -157,6 +157,81 @@ async function runQueue(){
  finally{busy=false;$("start").disabled=false;await releaseAwake();savePending();count()}
 }
 $("start").onclick=runQueue;
+
+let hqStream=null,hqRecorder=null,hqChunks=[],hqRecording=false;
+const hqStatus=message=>{$("hqStatus").textContent=message};
+function hqMime(){
+ const candidates=["video/mp4;codecs=avc1.42E01E,mp4a.40.2","video/mp4","video/webm;codecs=vp9,opus","video/webm"];
+ return candidates.find(type=>MediaRecorder.isTypeSupported(type))||"";
+}
+async function closeHQ(){
+ if(hqRecording){hqStatus("Stop recording before closing.");return}
+ if(hqStream){hqStream.getTracks().forEach(track=>track.stop());hqStream=null}
+ $("hqPreview").srcObject=null;
+ $("hqCamera").hidden=true;
+ $("hqOpen").disabled=false;
+}
+async function openHQ(){
+ $("hqCamera").hidden=false;
+ $("hqOpen").disabled=true;
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){
+  hqStatus("High Quality Camera requires trusted HTTPS. Open the receiver's HTTPS URL with a trusted certificate. The native camera button still works over HTTP.");
+  $("hqActual").textContent="Camera unavailable in this browser context";
+  return;
+ }
+ if(typeof MediaRecorder==="undefined"){hqStatus("MediaRecorder is not supported by this browser.");return}
+ try{
+  if(hqStream)hqStream.getTracks().forEach(track=>track.stop());
+  const [width,height,frameRate]=$("hqPreset").value.split("x").map(Number);
+  hqStream=await navigator.mediaDevices.getUserMedia({
+   video:{facingMode:{ideal:"environment"},width:{ideal:width},height:{ideal:height},frameRate:{ideal:frameRate}},
+   audio:true
+  });
+  $("hqPreview").srcObject=hqStream;
+  const actual=hqStream.getVideoTracks()[0].getSettings();
+  $("hqActual").textContent="Actual camera: "+(actual.width||"?")+" × "+(actual.height||"?")+" @ "+(actual.frameRate||"?")+" FPS (requested "+width+" × "+height+" @ "+frameRate+")";
+  hqStatus("Ready. Recordings upload without additional compression.");
+ }catch(e){hqStatus("Camera access failed: "+e.message)}
+}
+$("hqOpen").onclick=openHQ;
+$("hqClose").onclick=closeHQ;
+$("hqPreset").onchange=()=>{if(!hqRecording)openHQ()};
+$("hqStart").onclick=async()=>{
+ if(!hqStream){await openHQ();if(!hqStream)return}
+ try{
+  const mime=hqMime();
+  const options={videoBitsPerSecond:25_000_000,audioBitsPerSecond:192_000};
+  if(mime)options.mimeType=mime;
+  hqChunks=[];
+  hqRecorder=new MediaRecorder(hqStream,options);
+  hqRecorder.ondataavailable=e=>{if(e.data.size)hqChunks.push(e.data)};
+  hqRecorder.onerror=e=>hqStatus("Recording error: "+(e.error?.message||"unknown"));
+  hqRecorder.onstop=()=>{
+   hqRecording=false;
+   $("hqStart").disabled=false;
+   $("hqStop").disabled=true;
+   const type=hqRecorder.mimeType||mime||"video/mp4";
+   const extension=type.includes("webm")?"webm":"mp4";
+   const blob=new Blob(hqChunks,{type});hqChunks=[];
+   if(!blob.size){hqStatus("Recording was empty; nothing transferred.");return}
+   const name="Khensoz-"+new Date().toISOString().replace(/[:.]/g,"-")+"."+extension;
+   const file=new File([blob],name,{type,lastModified:Date.now()});
+   const item={file,id:null,done:false,cancelled:false,removed:false,controller:null};
+   queue.push(item);row(item);savePending();count();
+   hqStatus("Recorded "+(blob.size/1048576).toFixed(1)+" MB. Uploading original encoded file to Windows.");
+   runQueue();
+  };
+  hqRecorder.start(1000);
+  hqRecording=true;
+  $("hqStart").disabled=true;
+  $("hqStop").disabled=false;
+  hqStatus("Recording… keep this page in the foreground. Actual encoding depends on Safari.");
+ }catch(e){hqStatus("Unable to start recording: "+e.message)}
+};
+$("hqStop").onclick=()=>{
+ if(hqRecorder?.state==="recording")hqRecorder.stop();
+};
+
 restoreNotice();
 setInterval(async()=>{
  if(!connected||busy)return;
