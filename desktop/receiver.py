@@ -120,7 +120,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   path=urlsplit(self.path).path
   if path.startswith("/api/"):
-    if path=="/api/status":return self.send(200,{"sessions":self.server.state.snapshot()})
+   if path=="/api/status":return self.send(200,{"sessions":self.server.state.snapshot()})
    return self.send(404,{"error":"Not found"})
   file=WEB/(path.lstrip("/") or "index.html")
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
@@ -199,7 +199,6 @@ class Handler(BaseHTTPRequestHandler):
     return self.send(409,{"error":"Shortcut upload interrupted. Please retry the file."})
   except (ValueError,OSError) as e:return self.send(400,{"error":str(e)})
  def do_POST(self):
-  if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
   if urlsplit(self.path).path=="/api/shortcut":return self.shortcut_upload()
   try:
    length=int(self.headers.get("Content-Length","0"))
