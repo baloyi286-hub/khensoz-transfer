@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101c2a">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/style.css?v=12">
+<link rel="stylesheet" href="/style.css?v=13">
 <title>Khensoz Transfer</title>
 </head>
 <body>
@@ -17,7 +17,17 @@
 <section>
 <label class="picker">Choose photos and videos<input id="photos" type="file" accept="image/*,video/*" multiple></label>
 <label class="picker camera-photo">Take photo<input id="cameraPhoto" type="file" accept="image/*" capture="environment"></label>
-<label class="picker camera-video">Record video<input id="cameraVideo" type="file" accept="video/*" capture="environment"></label>
+<label class="picker camera-video">Record video (native)<input id="cameraVideo" type="file" accept="video/*" capture="environment"></label>
+<button id="hqOpen" type="button" class="hq-button">High Quality Camera (beta)</button>
+<div id="hqCamera" class="hq-camera" hidden>
+ <video id="hqPreview" autoplay playsinline muted></video>
+ <label for="hqPreset">Requested quality</label>
+ <select id="hqPreset"><option value="1920x1080x30">1080p · 30 FPS</option><option value="1920x1080x60">1080p · 60 FPS</option><option value="3840x2160x30">4K · 30 FPS</option><option value="3840x2160x60">4K · 60 FPS</option></select>
+ <p id="hqActual" role="status">Camera not started</p>
+ <p id="hqStatus" role="status"></p>
+ <div class="hq-actions"><button id="hqStart" type="button">Start recording</button><button id="hqStop" type="button" disabled>Stop &amp; transfer</button><button id="hqClose" type="button">Close camera</button></div>
+ <p class="note">Experimental Safari recording. Actual resolution, FPS and codec depend on your iPhone. Keep Safari open while recording and uploading. Requires trusted HTTPS.</p>
+</div>
 <label class="picker secondary">Choose files<input id="files" type="file" multiple></label>
 <p id="pickerStatus" role="status">Choose existing media or capture something new.</p>
 <p id="count" role="status">No files selected</p>
@@ -27,6 +37,6 @@
 <p id="error" role="alert"></p>
 <p class="note">Keep Safari open and your iPhone awake during transfer. Interrupted files can resume after reselecting them.</p>
 </main>
-<script type="module" src="/src.js?v=12"></script>
+<script type="module" src="/src.js?v=13"></script>
 </body>
 </html>
