@@ -1,7 +1,7 @@
 import {sha256} from './sha256.js';
 const $=id=>document.getElementById(id);
 const queue=[];
-let token="",busy=false,wakeLock=null;
+let connected=false,busy=false,wakeLock=null;
 const storageKey="khensoz-transfer-pending";
 function savePending(){try{sessionStorage.setItem(storageKey,JSON.stringify(queue.filter(x=>!x.done&&!x.removed&&!x.cancelled).map(x=>({name:x.file.name,size:x.file.size,lastModified:x.file.lastModified,id:x.id||null}))));}catch(e){}}
 function restoreNotice(){try{const saved=JSON.parse(sessionStorage.getItem(storageKey)||"[]");if(saved.length)$("pickerStatus").textContent="Interrupted transfer: select the same video again to resume from the saved Windows progress."; }catch(e){}}
@@ -13,7 +13,7 @@ window.addEventListener("unhandledrejection",e=>{$("error").textContent="App err
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function count(){const pending=queue.filter(x=>!x.done&&!x.removed&&!x.cancelled).length;$("count").textContent=pending?pending+" file(s) queued":"No files queued"}
 async function api(path,method="GET",body,headers={}){
- const r=await fetch(path,{method,headers:{"X-Transfer-Token":token,...headers},body});
+ const r=await fetch(path,{method,headers:{...headers},body});
  const data=await r.json();
  if(!r.ok)throw Error(data.error||"HTTP "+r.status);
  return data;
@@ -68,22 +68,20 @@ function row(item){
  actions.append(resume,cancel,remove);el.append(top,progress,status,actions);$("queue").append(el);
  item.el=el;item.cancelButton=cancel;item.resumeButton=resume;return el;
 }
-$("connect").onclick=async()=>{
- token=$("token").value.trim();
- try{sessionStorage.setItem("khensoz-pair-token",token)}catch(e){}
- try{await api("/api/status");$("connection").textContent="Connected to Windows receiver";$("error").textContent=""}
- catch(e){$("connection").textContent="Connection failed: "+e.message}
-};
-// QR pairing uses the URL fragment, which is not sent to the receiver.
-(function autoPairFromQR(){
- const params=new URLSearchParams(window.location.hash.slice(1));
- const scanned=params.get("token");
- if(!scanned){try{const remembered=sessionStorage.getItem("khensoz-pair-token");if(remembered){$("token").value=remembered;setTimeout(()=>$("connect").click(),0)}}catch(e){}return;}
- $("token").value=scanned;
- history.replaceState(null,"",window.location.pathname+window.location.search);
- // The click uses the same validated connection flow as manual pairing.
- setTimeout(()=>$("connect").click(),0);
-})();
+async function connect(){
+ try{
+  await api("/api/status");
+  connected=true;
+  $("connection").textContent="Connected to Windows receiver";
+  $("error").textContent="";
+ }catch(e){
+  connected=false;
+  $("connection").textContent="Connection failed: "+e.message;
+ }
+}
+connect();
+// Retry automatically if the Windows app starts after this page was opened.
+setInterval(()=>{if(!connected)connect()},5000);
 // Restore the original iPhone picker path: native input inside a label,
 // with direct change/input listeners. Transfer actions are independent.
 function addFiles(input){
@@ -131,7 +129,7 @@ async function transfer(item){
     if(item.cancelled||item.removed)return;
     const hash=await digest(buf);
     const controller=new AbortController();item.controller=controller;
-    const r=await fetch("/api/chunk/"+init.id,{method:"PUT",signal:controller.signal,headers:{"X-Transfer-Token":token,"X-Chunk-Offset":String(off),"X-Chunk-SHA256":hash},body:buf});
+    const r=await fetch("/api/chunk/"+init.id,{method:"PUT",signal:controller.signal,headers:{"X-Chunk-Offset":String(off),"X-Chunk-SHA256":hash},body:buf});
     const data=await r.json();item.controller=null;
     if(!r.ok)throw Error(data.error||"Upload failed");
     off=data.offset;progress.value=f.size?off/f.size*100:100;
@@ -153,7 +151,7 @@ async function transfer(item){
 }
 async function runQueue(){
  if(busy)return;
- if(!token)return alert("Connect to Windows first");
+ if(!connected){await connect();if(!connected)return alert("Cannot reach Windows receiver. Check Wi-Fi and the URL.");}
  busy=true;$("start").disabled=true;await holdAwake();
  try{for(const item of [...queue]){if(!item.done&&!item.cancelled&&!item.removed)await transfer(item)}}
  finally{busy=false;$("start").disabled=false;await releaseAwake();savePending();count()}
@@ -161,7 +159,7 @@ async function runQueue(){
 $("start").onclick=runQueue;
 restoreNotice();
 setInterval(async()=>{
- if(!token||busy)return;
+ if(!connected||busy)return;
  try{
   const data=await api("/api/status");
   for(const item of queue){
