@@ -254,7 +254,7 @@ def main():
   if event.delta:page.yview_scroll(-int(event.delta/abs(event.delta))*max(1,abs(event.delta)//120),"units")
  root.bind_all("<MouseWheel>",scroll_page)
  root.bind_all("<Button-4>",lambda e:page.yview_scroll(-3,"units"))
- root.bind_all("<Button-5>",lambda e:page.yview_scroll(3,"units")
+ root.bind_all("<Button-5>",lambda e:page.yview_scroll(3,"units"))
  ttk.Label(frame,text="Khensoz Transfer",style="Dark.TLabel",font=("Segoe UI",22,"bold")).pack(anchor="w",pady=(0,15))
  dest=tk.StringVar(value=str(Path.home()/"Downloads"/"Khensoz Transfer"))
  ttk.Label(frame,text="Save incoming files to",style="Dark.TLabel").pack(anchor="w")
