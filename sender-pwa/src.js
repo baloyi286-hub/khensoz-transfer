@@ -99,11 +99,11 @@ function addFiles(input){
  savePending();count();
  $("error").textContent=selected.length?"":"No files returned by the picker. Try Choose files.";
 }
-for(const id of ["photos","files"]){
+for(const id of ["photos","files","cameraPhoto","cameraVideo"]){
  const input=$(id);
  // iOS Safari may dispatch both input and change for a single selection.
  // Process only change, once per picker selection, to avoid duplicate rows.
- input.addEventListener("change",()=>addFiles(input));
+ input.addEventListener("change",()=>{addFiles(input);if(id==="cameraPhoto"||id==="cameraVideo")runQueue();});
 }
 async function digest(buffer){return sha256(new Uint8Array(buffer))}
 async function fingerprint(file){
