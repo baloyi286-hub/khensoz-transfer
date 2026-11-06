@@ -232,6 +232,63 @@ $("hqStop").onclick=()=>{
  if(hqRecorder?.state==="recording")hqRecorder.stop();
 };
 
+
+let libraryFolder="";
+const libraryURL=(path,download=false)=>"/api/library/file?path="+encodeURIComponent(path)+(download?"&download=1":"");
+function libraryViewerClose(){
+ $("libraryMedia").replaceChildren();$("libraryViewer").hidden=true;
+ document.body.style.overflow="";
+}
+$("libraryClose").onclick=libraryViewerClose;
+$("libraryRefresh").onclick=()=>loadLibrary(libraryFolder);
+async function loadLibrary(folder=""){
+ $("libraryStatus").textContent="Loading Windows files…";
+ $("libraryGrid").replaceChildren();
+ try{
+  const data=await api("/api/library?path="+encodeURIComponent(folder));
+  libraryFolder=data.folder;
+  const crumb=$("libraryBreadcrumb");crumb.replaceChildren();
+  const home=document.createElement("button");home.textContent="Shared folder";home.onclick=()=>loadLibrary("");crumb.append(home);
+  if(libraryFolder){
+   const up=document.createElement("button");up.textContent="↑ Up";up.onclick=()=>loadLibrary(libraryFolder.split("/").slice(0,-1).join("/"));crumb.append(up);
+   const label=document.createElement("span");label.textContent=" / "+libraryFolder;crumb.append(label);
+  }
+  for(const item of data.items){
+   const card=document.createElement("div");card.className="library-card";
+   const preview=document.createElement("button");preview.className="library-preview";
+   const url=libraryURL(item.path);
+   if(item.folder){preview.textContent="📁";preview.onclick=()=>loadLibrary(item.path)}
+   else{
+    if(item.type.startsWith("image/")){
+     const img=document.createElement("img");img.src=url;img.alt=item.name;img.loading="lazy";preview.append(img);
+    }else if(item.type.startsWith("video/")){
+     const video=document.createElement("video");video.src=url+"#t=0.1";video.preload="metadata";video.muted=true;video.playsInline=true;preview.append(video);
+    }else preview.textContent="📄";
+    preview.onclick=()=>openLibraryItem(item);
+   }
+   const title=document.createElement("div");title.className="library-name";title.textContent=item.name;
+   card.append(preview,title);
+   if(!item.folder){
+    const download=document.createElement("a");download.href=libraryURL(item.path,true);download.download=item.name;download.textContent="Download original";download.className="library-download";card.append(download);
+   }
+   $("libraryGrid").append(card);
+  }
+  $("libraryStatus").textContent=data.items.length+" item(s) in Windows folder";
+ }catch(e){$("libraryStatus").textContent="Unable to load Windows media: "+e.message}
+}
+function openLibraryItem(item){
+ const url=libraryURL(item.path),area=$("libraryMedia");area.replaceChildren();
+ $("libraryTitle").textContent=item.name;
+ $("libraryDownload").onclick=()=>{const a=document.createElement("a");a.href=libraryURL(item.path,true);a.download=item.name;document.body.append(a);a.click();a.remove()};
+ if(item.type.startsWith("image/")){
+  const img=document.createElement("img");img.src=url;img.alt=item.name;area.append(img);
+ }else if(item.type.startsWith("video/")){
+  const video=document.createElement("video");video.src=url;video.controls=true;video.playsInline=true;video.preload="metadata";area.append(video);
+ }else{const p=document.createElement("p");p.textContent="Preview unavailable. Download the original file.";area.append(p)}
+ $("libraryViewer").hidden=false;document.body.style.overflow="hidden";
+}
+loadLibrary();
+
 restoreNotice();
 setInterval(async()=>{
  if(!connected||busy)return;
