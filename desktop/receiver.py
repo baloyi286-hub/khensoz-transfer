@@ -2,7 +2,8 @@ import hashlib,json,os,secrets,socket,sys,threading,tkinter as tk,traceback,subp
 from pathlib import Path
 from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
-from urllib.parse import urlsplit,quote
+from urllib.parse import urlsplit,quote,parse_qs
+import mimetypes
 
 # Windows power APIs: keep the display and system awake while the receiver runs.
 ES_CONTINUOUS=0x80000000
@@ -120,12 +121,72 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   path=urlsplit(self.path).path
   if path.startswith("/api/"):
+   if path=="/api/library":return self.list_library()
+   if path=="/api/library/file":return self.stream_library()
    if path=="/api/status":return self.send(200,{"sessions":self.server.state.snapshot()})
    return self.send(404,{"error":"Not found"})
   file=WEB/(path.lstrip("/") or "index.html")
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
   b=file.read_bytes();mime={".html":"text/html",".js":"text/javascript",".css":"text/css",".svg":"image/svg+xml",".webmanifest":"application/manifest+json"}.get(file.suffix,"application/octet-stream")
   self.send_response(200);self.send_header("Content-Type",mime+"; charset=utf-8" if mime.startswith(("text/","application/manifest")) else mime);self.send_header("Cache-Control","no-store");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
+ def library_path(self):
+  state=self.server.state
+  base=state.destination.resolve()
+  relative=parse_qs(urlsplit(self.path).query).get("path",[""])[0]
+  if "\\x00" in relative:raise ValueError("Invalid path")
+  candidate=(base/relative).resolve()
+  if not candidate.is_relative_to(base):raise ValueError("Outside shared folder")
+  if candidate.is_symlink():raise ValueError("Symlinks are not shared")
+  return base,candidate
+ def list_library(self):
+  try:
+   base,folder=self.library_path()
+   if not folder.is_dir():return self.send(404,{"error":"Folder not found"})
+   entries=[]
+   for entry in folder.iterdir():
+    if entry.name==".khensoz-partials" or entry.is_symlink() or not entry.resolve().is_relative_to(base):continue
+    if entry.is_dir():entries.append({"name":entry.name,"path":entry.relative_to(base).as_posix(),"folder":True})
+    elif entry.is_file() and entry.suffix.lower() in (".jpg",".jpeg",".png",".gif",".webp",".heic",".heif",".avif",".bmp",".mp4",".mov",".m4v",".webm",".mkv",".avi",".mp3",".wav",".pdf"):
+     entries.append({"name":entry.name,"path":entry.relative_to(base).as_posix(),"folder":False,"size":entry.stat().st_size,"type":mimetypes.guess_type(entry.name)[0] or "application/octet-stream"})
+   entries.sort(key=lambda x:(not x["folder"],x["name"].lower()))
+   return self.send(200,{"folder":folder.relative_to(base).as_posix() if folder!=base else "","items":entries})
+  except (ValueError,OSError) as e:return self.send(400,{"error":str(e)})
+ def stream_library(self):
+  try:
+   base,file=self.library_path()
+   if not file.is_file() or file.name.endswith(".part") or ".khensoz-partials" in file.parts:return self.send(404,{"error":"File not found"})
+   size=file.stat().st_size
+   start,end=0,max(0,size-1)
+   range_header=self.headers.get("Range","")
+   if range_header:
+    import re
+    match=re.fullmatch(r"bytes=(\\d*)-(\\d*)",range_header.strip())
+    if not match or (not match.group(1) and not match.group(2)):return self.send(416,{"error":"Invalid range"})
+    if match.group(1):
+     start=int(match.group(1));end=min(int(match.group(2)),size-1) if match.group(2) else size-1
+    else:start=max(0,size-int(match.group(2)))
+    if start>=size or end<start:
+     self.send_response(416);self.send_header("Content-Range",f"bytes */{size}");self.end_headers();return
+   mime=mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+   download=parse_qs(urlsplit(self.path).query).get("download",["0"])[0]=="1"
+   self.send_response(206 if range_header else 200)
+   self.send_header("Content-Type",mime)
+   self.send_header("Accept-Ranges","bytes")
+   self.send_header("Content-Length",str(end-start+1) if size else "0")
+   self.send_header("X-Content-Type-Options","nosniff")
+   self.send_header("Cache-Control","private, no-store")
+   self.send_header("Content-Disposition",("attachment" if download else "inline")+"; filename*=UTF-8''"+quote(file.name,safe=""))
+   if range_header:self.send_header("Content-Range",f"bytes {start}-{end}/{size}")
+   self.end_headers()
+   with file.open("rb") as source:
+    source.seek(start);remaining=end-start+1 if size else 0
+    while remaining:
+     block=source.read(min(1024*1024,remaining))
+     if not block:break
+     self.wfile.write(block);remaining-=len(block)
+  except (OSError,ValueError,BrokenPipeError,ConnectionResetError) as e:
+   try:self.send(400,{"error":str(e)})
+   except OSError:pass
  def detect_media_extension(self,path):
   # Detect common photo/video formats from file signatures, not the shortcut filename.
   with path.open("rb") as stream:head=stream.read(4096)
@@ -259,6 +320,11 @@ def main():
  ttk.Entry(frame,textvariable=dest,style="Dark.TEntry").pack(fill="x",pady=7)
  ttk.Button(frame,text="Choose folder",style="Dark.TButton",command=lambda:dest.set(filedialog.askdirectory() or dest.get())).pack(anchor="w",pady=(0,16))
  state=State(dest.get(),8765)
+ def update_shared_folder(*_):
+  with LOCK:
+   folder=Path(dest.get()).expanduser()
+   if folder.is_dir():state.destination=folder
+ dest.trace_add("write",update_shared_folder)
  # Power protection is active only while this window is running.
  keep_windows_awake(True)
  power_row=ttk.Frame(frame,style="Dark.TFrame")
