@@ -31,7 +31,7 @@ LOCK=threading.RLock()
 class State:
  def __init__(self,destination,port):
   self.destination=Path(destination);self.destination.mkdir(parents=True,exist_ok=True)
-  self.port=port;self.token=secrets.token_urlsafe(18)
+  self.port=port
   self.home=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"KhensozTransfer";self.home.mkdir(parents=True,exist_ok=True)
   try:self.sessions=json.loads((self.home/"transfers.json").read_text())
   except (OSError,ValueError):self.sessions={}
@@ -116,12 +116,11 @@ class Handler(BaseHTTPRequestHandler):
   except OSError:pass
  def send(self,code,data):
   b=json.dumps(data).encode();self.send_response(code);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(b)));self.end_headers();self.wfile.write(b)
- def auth(self):return secrets.compare_digest(self.headers.get("X-Transfer-Token",""),self.server.state.token)
+ def auth(self):return True  # Trusted local-network mode: no pairing token required.
  def do_GET(self):
   path=urlsplit(self.path).path
   if path.startswith("/api/"):
-   if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
-   if path=="/api/status":return self.send(200,{"sessions":self.server.state.snapshot()})
+    if path=="/api/status":return self.send(200,{"sessions":self.server.state.snapshot()})
    return self.send(404,{"error":"Not found"})
   file=WEB/(path.lstrip("/") or "index.html")
   if not file.is_file() or not file.resolve().is_relative_to(WEB.resolve()):return self.send(404,{"error":"Not found"})
@@ -148,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
    return ".mp4"
   return ""
  def shortcut_upload(self):
-  # Apple Shortcuts: POST raw file bytes with X-Filename and X-Transfer-Token.
+  # Apple Shortcuts: POST raw file bytes with X-Filename; no token required.
   # Stream to disk instead of buffering large iPhone videos in RAM.
   from urllib.parse import unquote
   name=Path(unquote(self.headers.get("X-Filename","").replace("\\\\","/"))).name
@@ -302,10 +301,7 @@ def main():
  ttk.Label(frame,text="Open one of these URLs on iPhone Safari (same Wi-Fi)",style="Dark.TLabel").pack(anchor="w")
  info=tk.Label(frame,text="\\n".join("http://"+ip+":8765" for ip in sorted(addresses)) or "No LAN IP detected",bg="#272822",fg="#a6e22e",font=("Consolas",12),justify="left",anchor="w",padx=12,pady=12)
  info.pack(fill="x",pady=7)
- ttk.Label(frame,text="Pairing token",style="Dark.TLabel").pack(anchor="w")
- token=tk.Entry(frame,bg="#272822",fg="#f8f8f2",relief="flat",font=("Consolas",12))
- token.insert(0,state.token);token.pack(fill="x",ipady=8,pady=7)
- # The QR uses a URL fragment so the pairing token is never sent in the HTTP request.
+ ttk.Label(frame,text="Local-network access: anyone who can reach this port can upload files.",style="Dark.TLabel",wraplength=830).pack(anchor="w",pady=(3,8))
  qr_area=ttk.Frame(frame,style="Dark.TFrame")
  qr_area.pack(fill="x",pady=(8,10))
  qr_label=tk.Label(qr_area,bg="white",padx=8,pady=8)
@@ -313,7 +309,7 @@ def main():
  qr_text=ttk.Frame(qr_area,style="Dark.TFrame")
  qr_text.pack(side="left",fill="x",expand=True,padx=(14,0))
  ttk.Label(qr_text,text="Scan to connect",style="Dark.TLabel",font=("Segoe UI",12,"bold")).pack(anchor="w")
- ttk.Label(qr_text,text="Scan with iPhone Camera. The sender opens with the pairing token filled in and connects automatically.",style="Dark.TLabel",wraplength=520,justify="left").pack(anchor="w",pady=(5,6))
+ ttk.Label(qr_text,text="Scan with your phone camera. The sender opens and connects automatically; no token needed.",style="Dark.TLabel",wraplength=520,justify="left").pack(anchor="w",pady=(5,6))
  qr_url=tk.StringVar()
  ttk.Label(qr_text,textvariable=qr_url,style="Dark.TLabel",wraplength=520).pack(anchor="w")
  def refresh_qr():
@@ -325,7 +321,7 @@ def main():
     qr_label.configure(text="No LAN IP",image="",fg="#172c3f")
     qr_url.set("Connect the PC and iPhone to the same Wi-Fi.")
     return
-   url="http://"+ips[0]+":8765/#token="+quote(state.token,safe="")
+   url="http://"+ips[0]+":8765/"
    qr=qrcode.QRCode(box_size=5,border=2,error_correction=qrcode.constants.ERROR_CORRECT_M)
    qr.add_data(url);qr.make(fit=True)
    img=ImageTk.PhotoImage(qr.make_image(fill_color="#101b2a",back_color="white").convert("RGB"))
