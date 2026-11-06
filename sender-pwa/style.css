@@ -6,3 +6,20 @@
 #pickerStatus{font-size:13px;color:#a8c5d8}
 
 .actions{display:flex;gap:9px;margin-top:12px}.actions button{padding:9px 13px;font-size:19px;min-width:42px;min-height:40px}.actions .danger{background:#9c3943}.actions .muted{background:#43566b}.actions .resume{background:#177e58}.actions button:disabled{opacity:.45;cursor:default}.item small{display:block;margin-top:9px;overflow-wrap:anywhere}.item .row strong{min-width:0;overflow-wrap:anywhere}.item .row span{white-space:nowrap;flex-shrink:0;font-size:13px}
+
+/* Sublime-inspired charcoal palette and distinct action colors */
+body{background:#191a21;color:#f8f8f2}
+section,.item{background:#272822;border:1px solid #41423b}
+h1{color:#f92672}
+p,.note{color:#b7b8af}
+input:not([type=file]){background:#1e1f25;border-color:#55564d;color:#f8f8f2}
+button{background:#a6e22e;color:#191a21}
+.picker{background:#ae81ff;color:#191a21}
+.picker.secondary{background:#66d9ef;color:#191a21}
+.picker.camera-photo{background:#e6db74;color:#191a21}
+.picker.camera-video{background:#fd971f;color:#191a21}
+progress{accent-color:#a6e22e}
+#pickerStatus{color:#66d9ef}
+.actions .danger{background:#f92672;color:#fff}
+.actions .muted{background:#75715e;color:#fff}
+.actions .resume{background:#a6e22e;color:#191a21}
