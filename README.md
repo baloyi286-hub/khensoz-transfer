@@ -28,3 +28,7 @@ If the IP changes, generate a certificate covering the new IP and restart the re
 **Memory note:** Browser recording buffers encoded video in memory until stopped, so avoid very long recordings; the native Camera app + original-file transfer is more reliable for lengthy 4K clips. Safari may not provide all iPhone lenses, stabilization modes, native codecs, or manual camera controls.
 
 Build `KhensozTransfer.exe` using GitHub Actions or `build-windows.bat`.
+
+## GoPro HERO11 tab (initial integration)
+
+The Windows desktop app includes a **GoPro HERO11** tab. Select USB or Wi-Fi/Bluetooth, test the connection, choose a recording duration and a destination, then use **Record + download**. The Open GoPro Python SDK records natively to the camera microSD card, stops after the selected duration and downloads the last captured original to the PC. It requires Python 3.11–3.13 and the `open-gopro` package; Windows EXE builds bundle the SDK. The camera must be powered on and connected with a data-capable USB cable or paired for wireless access. A camera is required to validate hardware behavior. Live preview, direct-to-PC stream capture, manual start/stop, settings and media browsing are not implemented yet.
