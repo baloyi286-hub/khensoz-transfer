@@ -57,7 +57,6 @@ def mount_gopro_tab(parent, root):
 
         async def operate():
             from open_gopro import WiredGoPro, WirelessGoPro
-            from open_gopro.models import constants
             # Use a fresh connection per operation to avoid sharing an asyncio
             # loop with tkinter. The SDK closes the camera on context exit.
             camera = WiredGoPro() if mode == "USB" else WirelessGoPro()
@@ -72,7 +71,7 @@ def mount_gopro_tab(parent, root):
                 folder.mkdir(parents=True, exist_ok=True)
                 # Native capture happens on the camera's SD card.
                 report("Starting camera recording...")
-                from open_gopro.models import constants as Params
+                from open_gopro import Params
                 start = await gopro.http_command.set_shutter(shutter=Params.Toggle.ENABLE)
                 if not start.ok:
                     raise RuntimeError(str(start))
@@ -90,8 +89,8 @@ def mount_gopro_tab(parent, root):
                 # Last-captured media is modelled as a MediaPath; field names
                 # can vary between SDK versions, so report it if not recognized.
                 media = last.data
-                directory = getattr(media, "directory", None)
-                filename = getattr(media, "filename", None)
+                directory = getattr(media, "folder", None)
+                filename = getattr(media, "file", None)
                 if not directory or not filename:
                     report("Video saved on GoPro SD card. Media: " + str(media))
                     return
@@ -100,7 +99,7 @@ def mount_gopro_tab(parent, root):
                     target = folder / (target.stem + "-gopro" + target.suffix)
                 report("Downloading original: " + filename)
                 result = await gopro.http_command.download_file(
-                    camera_file=media, local_file=target)
+                    camera_file=media.as_path, local_file=target)
                 if not result.ok:
                     raise RuntimeError(str(result))
                 report("Downloaded: " + str(target))
