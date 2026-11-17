@@ -26,7 +26,7 @@ jobs:
         run: python -m pip install --upgrade pyinstaller "qrcode[pil]" "open-gopro"
       - name: Build portable Windows executable
         shell: pwsh
-        run: pyinstaller --noconfirm --clean --onefile --windowed --name KhensozTransfer --add-data "sender-pwa;sender-pwa" --hidden-import gopro_tab --collect-submodules open_gopro --exclude-module open_gopro.demos --exclude-module cv2 --exclude-module PySide6 --exclude-module PyQt5 desktop/receiver.py
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name KhensozTransfer --add-data "sender-pwa;sender-pwa" --hidden-import gopro_tab --exclude-module open_gopro.demos --exclude-module cv2 --exclude-module PySide6 --exclude-module PyQt5 desktop/receiver.py
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
