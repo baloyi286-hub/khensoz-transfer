@@ -5,6 +5,10 @@ when the optional GoPro dependencies or a camera are unavailable.
 """
 import asyncio
 import threading
+import platform
+import subprocess
+import traceback
+import importlib.metadata
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -16,6 +20,38 @@ def mount_gopro_tab(parent, root):
     seconds = tk.StringVar(value="10")
     output = tk.StringVar(value=str(Path.home() / "Videos" / "GoPro"))
     busy = [False]
+    diagnostic_log = []
+    def log(message):
+        diagnostic_log.append(message)
+        diagnostic_log[:] = diagnostic_log[-80:]
+        def display():
+            details.configure(state="normal")
+            details.delete("1.0", "end")
+            details.insert("1.0", "\\n".join(diagnostic_log))
+            details.configure(state="disabled")
+        root.after(0, display)
+    def diagnose():
+        def worker():
+            log("Windows: " + platform.platform())
+            try:
+                log("Open GoPro SDK: " + importlib.metadata.version("open-gopro"))
+            except importlib.metadata.PackageNotFoundError:
+                log("Open GoPro SDK: not installed")
+            for label, cmd in [
+                ("Bluetooth adapters", "Get-PnpDevice -Class Bluetooth | Select-Object Status,FriendlyName | Format-Table -AutoSize"),
+                ("Detected GoPro/USB devices", "Get-PnpDevice -PresentOnly | Where-Object { $_.FriendlyName -match 'GoPro|HERO|RNDIS' } | Select-Object Status,FriendlyName | Format-Table -AutoSize"),
+                ("Network adapters", "Get-NetAdapter | Select-Object Name,Status,InterfaceDescription | Format-Table -AutoSize"),
+            ]:
+                try:
+                    p = subprocess.run(["powershell", "-NoProfile", "-Command", cmd],
+                                       capture_output=True, text=True, timeout=15,
+                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                    log(label + ":\\n" + (p.stdout.strip() or p.stderr.strip() or "No matching devices"))
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    log(label + ": " + str(exc))
+            log("Diagnostics complete. Camera discovery requires Test connection.")
+        threading.Thread(target=worker, daemon=True).start()
+
 
     ttk.Label(parent, text="GoPro HERO11 Black", style="Dark.TLabel",
               font=("Segoe UI", 20, "bold")).pack(anchor="w", pady=(0, 12))
@@ -40,6 +76,20 @@ def mount_gopro_tab(parent, root):
         except RuntimeError:
             pass
 
+    ttk.Label(parent, text="Connection diagnostics", style="Dark.TLabel").pack(anchor="w", pady=(12, 4))
+    details = tk.Text(parent, height=12, bg="#272822", fg="#f8f8f2", font=("Consolas", 9), wrap="word")
+    details.pack(fill="x", pady=(0, 8))
+    details.configure(state="disabled")
+    diagnostics_row = ttk.Frame(parent, style="Dark.TFrame")
+    diagnostics_row.pack(anchor="w", pady=(0, 12))
+    ttk.Button(diagnostics_row, text="Run diagnostics", style="Dark.TButton",
+               command=diagnose).pack(side="left", padx=(0, 8))
+    def copy_log():
+        root.clipboard_clear()
+        root.clipboard_append("\\n".join(diagnostic_log))
+    ttk.Button(diagnostics_row, text="Copy diagnostics", style="Dark.TButton",
+               command=copy_log).pack(side="left")
+
     def launch(action):
         if busy[0]:
             messagebox.showinfo("GoPro busy", "Wait for the current GoPro operation to finish.")
@@ -54,6 +104,7 @@ def mount_gopro_tab(parent, root):
         mode = connection.get()
         folder = Path(output.get()).expanduser()
         busy[0] = True
+        log('Starting ' + action + ' via ' + mode)
 
         async def operate():
             from open_gopro import WiredGoPro, WirelessGoPro
@@ -62,6 +113,7 @@ def mount_gopro_tab(parent, root):
             camera = WiredGoPro() if mode == "USB" else WirelessGoPro()
             async with camera as gopro:
                 report("Connected. Camera ready.")
+                log("Camera connected via " + mode)
                 if action == "check":
                     response = await gopro.http_command.get_camera_info()
                     if not response.ok:
@@ -108,8 +160,10 @@ def mount_gopro_tab(parent, root):
             try:
                 asyncio.run(operate())
             except ImportError as exc:
+                log("ImportError: " + str(exc))
                 report("GoPro SDK unavailable: " + str(exc) + ". Install open-gopro.")
             except Exception as exc:
+                log(type(exc).__name__ + ": " + str(exc) + "\\n" + traceback.format_exc()[-3000:])
                 report("GoPro error: " + str(exc))
             finally:
                 busy[0] = False
