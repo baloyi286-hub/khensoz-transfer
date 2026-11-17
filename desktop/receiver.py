@@ -305,8 +305,17 @@ def main():
  page.configure(yscrollcommand=page_scroll.set)
  page_scroll.pack(side="right",fill="y")
  page.pack(side="left",fill="both",expand=True)
- frame=ttk.Frame(page,style="Dark.TFrame",padding=22)
- page_window=page.create_window((0,0),window=frame,anchor="nw")
+ tabs=ttk.Notebook(page)
+ page_window=page.create_window((0,0),window=tabs,anchor="nw")
+ frame=ttk.Frame(tabs,style="Dark.TFrame",padding=22)
+ tabs.add(frame,text="iPhone Transfer")
+ gopro_frame=ttk.Frame(tabs,style="Dark.TFrame",padding=22)
+ tabs.add(gopro_frame,text="GoPro HERO11")
+ from gopro_tab import mount_gopro_tab
+ mount_gopro_tab(gopro_frame,root)
+
+
+ tabs.bind("<Configure>",lambda e:page.configure(scrollregion=page.bbox("all")))
  frame.bind("<Configure>",lambda e:page.configure(scrollregion=page.bbox("all")))
  page.bind("<Configure>",lambda e:page.itemconfigure(page_window,width=e.width))
  def scroll_page(event):
