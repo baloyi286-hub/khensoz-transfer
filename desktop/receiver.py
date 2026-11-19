@@ -5,8 +5,6 @@ from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from urllib.parse import urlsplit,quote,parse_qs
 import mimetypes
 import io
-from PIL import Image, ImageTk
-from live_capture import LiveCaptures
 
 # Windows power APIs: keep the display and system awake while the receiver runs.
 ES_CONTINUOUS=0x80000000
@@ -36,6 +34,7 @@ class State:
  def __init__(self,destination,port):
   self.destination=Path(destination);self.destination.mkdir(parents=True,exist_ok=True)
   self.port=port
+  from desktop.live_capture import LiveCaptures
   self.live=LiveCaptures(self)
   self.preview_lock=threading.Lock()
   self.preview_frame=None
@@ -366,6 +365,7 @@ def main():
  preview_label.pack(fill="both",expand=True)
  preview_seen=[None]
  def refresh_preview():
+  from PIL import Image, ImageTk
   with state.preview_lock:
    frame_bytes=state.preview_frame
    updated=state.preview_updated
