@@ -34,7 +34,11 @@ class State:
  def __init__(self,destination,port):
   self.destination=Path(destination);self.destination.mkdir(parents=True,exist_ok=True)
   self.port=port
-  from desktop.live_capture import LiveCaptures
+  try:
+   from desktop.live_capture import LiveCaptures
+  except ModuleNotFoundError as exc:
+   if exc.name not in ('desktop','desktop.live_capture'):raise
+   from live_capture import LiveCaptures
   self.live=LiveCaptures(self)
   self.preview_lock=threading.Lock()
   self.preview_frame=None
