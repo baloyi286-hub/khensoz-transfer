@@ -235,6 +235,7 @@ $("hqStop").onclick=()=>{
 
 let liveStream=null,liveRecorder=null,liveSession=null,liveSequence=0,liveBytes=0;
 let livePending=Promise.resolve(),liveQueued=0,liveError=null,liveActive=false;
+let livePreviewTimer=null,livePreviewBusy=false;
 const liveStatus=message=>{$("liveStatus").textContent=message};
 function liveCloseCamera(){
  if(liveActive){liveStatus("Stop recording first.");return}
@@ -303,6 +304,25 @@ $("liveStart").onclick=async()=>{
   const extension=(recorder.mimeType||mime).includes("webm")?"webm":"mp4";
   liveSession=await api("/api/live/start","POST",JSON.stringify({extension}),{"Content-Type":"application/json"});
   liveRecorder=recorder;liveSequence=0;liveBytes=0;liveError=null;liveQueued=0;
+  const previewCanvas=document.createElement("canvas");
+  previewCanvas.width=640;previewCanvas.height=360;
+  const previewContext=previewCanvas.getContext("2d");
+  const sendPreview=async()=>{
+   if(!liveActive||livePreviewBusy||!liveSession||!liveStream)return;
+   const video=$("livePreview");
+   if(video.readyState<2)return;
+   livePreviewBusy=true;
+   try{
+    previewContext.drawImage(video,0,0,640,360);
+    const jpeg=await new Promise(resolve=>previewCanvas.toBlob(resolve,"image/jpeg",0.65));
+    if(jpeg&&jpeg.size){
+     await fetch("/api/live/preview/"+liveSession.id,{method:"PUT",body:jpeg});
+    }
+   }catch(e){/* Preview is best-effort; original recording continues. */}
+   finally{livePreviewBusy=false}
+  };
+  if(livePreviewTimer)clearInterval(livePreviewTimer);
+  livePreviewTimer=setInterval(sendPreview,200);
   livePending=Promise.resolve();liveActive=true;
   await holdAwake();
   $("liveStart").disabled=true;$("liveStop").disabled=false;
@@ -334,6 +354,7 @@ $("liveStart").onclick=async()=>{
     liveStatus("Recording interrupted: "+e.message+". Partial recording remains on Windows.");
    }finally{
     liveActive=false;
+    if(livePreviewTimer){clearInterval(livePreviewTimer);livePreviewTimer=null}
     $("liveStart").disabled=false;$("liveStop").disabled=true;
     await releaseAwake();
    }
@@ -342,6 +363,7 @@ $("liveStart").onclick=async()=>{
   liveStatus("Live recording started. Sending video to Windows…");
  }catch(e){
   liveActive=false;
+  if(livePreviewTimer){clearInterval(livePreviewTimer);livePreviewTimer=null}
   $("liveStart").disabled=false;$("liveStop").disabled=true;
   liveStatus("Could not start live recording: "+e.message);
  }
