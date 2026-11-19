@@ -233,6 +233,126 @@ $("hqStop").onclick=()=>{
 };
 
 
+let liveStream=null,liveRecorder=null,liveSession=null,liveSequence=0,liveBytes=0;
+let livePending=Promise.resolve(),liveQueued=0,liveError=null,liveActive=false;
+const liveStatus=message=>{$("liveStatus").textContent=message};
+function liveCloseCamera(){
+ if(liveActive){liveStatus("Stop recording first.");return}
+ if(liveStream){liveStream.getTracks().forEach(t=>t.stop());liveStream=null}
+ $("livePreview").srcObject=null;
+ $("liveCamera").hidden=true;
+}
+async function liveOpenCamera(){
+ if(liveActive)return;
+ $("liveCamera").hidden=false;
+ if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){
+  liveStatus("Trusted HTTPS is required to access the iPhone camera.");return;
+ }
+ if(typeof MediaRecorder==="undefined"){liveStatus("Safari MediaRecorder is unavailable.");return}
+ try{
+  if(liveStream)liveStream.getTracks().forEach(t=>t.stop());
+  const [width,height,frameRate]=$("livePreset").value.split("x").map(Number);
+  liveStream=await navigator.mediaDevices.getUserMedia({
+   video:{facingMode:{ideal:"environment"},width:{ideal:width},height:{ideal:height},frameRate:{ideal:frameRate}},
+   audio:true
+  });
+  $("livePreview").srcObject=liveStream;
+  const actual=liveStream.getVideoTracks()[0].getSettings();
+  $("liveActual").textContent="Actual: "+(actual.width||"?")+" × "+(actual.height||"?")+" @ "+(actual.frameRate||"?")+" FPS";
+  liveStatus("Ready to record directly to Windows.");
+ }catch(e){liveStatus("Camera unavailable: "+e.message)}
+}
+$("liveOpen").onclick=liveOpenCamera;
+$("liveClose").onclick=liveCloseCamera;
+$("livePreset").onchange=liveOpenCamera;
+async function sendLiveBlob(blob){
+ const buffer=await blob.arrayBuffer();
+ for(let offset=0;offset<buffer.byteLength;offset+=4*1024*1024){
+  const chunk=buffer.slice(offset,offset+4*1024*1024);
+  const hash=await digest(chunk);
+  let success=false;
+  for(let attempt=0;attempt<4;attempt++){
+   try{
+    const response=await fetch("/api/live/chunk/"+liveSession.id,{
+     method:"PUT",headers:{"X-Chunk-Sequence":String(liveSequence),"X-Chunk-SHA256":hash},
+     body:chunk
+    });
+    const result=await response.json();
+    if(!response.ok)throw Error(result.error||"Chunk upload failed");
+    liveSequence=result.sequence;
+    liveBytes=result.bytes;
+    liveStatus("Recording to laptop · "+(liveBytes/1048576).toFixed(1)+" MB saved");
+    success=true;break;
+   }catch(e){
+    if(attempt===3)throw e;
+    await wait(500*(attempt+1));
+   }
+  }
+  if(!success)throw Error("Live transfer failed");
+ }
+}
+$("liveStart").onclick=async()=>{
+ if(liveActive)return;
+ if(!liveStream){await liveOpenCamera();if(!liveStream)return}
+ if(!connected){await connect();if(!connected){liveStatus("Windows receiver not connected.");return}}
+ try{
+  const mime=hqMime();
+  const options={videoBitsPerSecond:25_000_000,audioBitsPerSecond:192_000};
+  if(mime)options.mimeType=mime;
+  const recorder=new MediaRecorder(liveStream,options);
+  const extension=(recorder.mimeType||mime).includes("webm")?"webm":"mp4";
+  liveSession=await api("/api/live/start","POST",JSON.stringify({extension}),{"Content-Type":"application/json"});
+  liveRecorder=recorder;liveSequence=0;liveBytes=0;liveError=null;liveQueued=0;
+  livePending=Promise.resolve();liveActive=true;
+  await holdAwake();
+  $("liveStart").disabled=true;$("liveStop").disabled=false;
+  recorder.ondataavailable=event=>{
+   if(!event.data.size)return;
+   liveQueued+=event.data.size;
+   if(liveQueued>96*1024*1024){
+    liveError=new Error("Network too slow: 96 MB of unsent video queued.");
+    if(recorder.state==="recording")recorder.stop();
+    return;
+   }
+   const blob=event.data;
+   livePending=livePending.then(()=>sendLiveBlob(blob)).catch(e=>{
+    liveError=e;
+    liveStatus("Transfer failed: "+e.message+". Stop recording to preserve the partial file.");
+    if(recorder.state==="recording")recorder.stop();
+   }).finally(()=>{liveQueued-=blob.size});
+  };
+  recorder.onerror=event=>{liveError=event.error||new Error("Camera recorder error")};
+  recorder.onstop=async()=>{
+   try{
+    await livePending;
+    if(liveError)throw liveError;
+    const result=await api("/api/live/finish/"+liveSession.id,"POST",
+     JSON.stringify({sequence:liveSequence}),{"Content-Type":"application/json"});
+    liveStatus("Saved on Windows: "+result.name+" ("+(result.bytes/1048576).toFixed(1)+" MB)");
+    loadLibrary("");
+   }catch(e){
+    liveStatus("Recording interrupted: "+e.message+". Partial recording remains on Windows.");
+   }finally{
+    liveActive=false;
+    $("liveStart").disabled=false;$("liveStop").disabled=true;
+    await releaseAwake();
+   }
+  };
+  recorder.start(1000);
+  liveStatus("Live recording started. Sending video to Windows…");
+ }catch(e){
+  liveActive=false;
+  $("liveStart").disabled=false;$("liveStop").disabled=true;
+  liveStatus("Could not start live recording: "+e.message);
+ }
+};
+$("liveStop").onclick=()=>{
+ if(liveRecorder?.state==="recording"){
+  liveStatus("Finishing recording and saving final chunks…");
+  liveRecorder.stop();
+ }
+};
+
 let libraryFolder="";
 const libraryURL=(path,download=false)=>"/api/library/file?path="+encodeURIComponent(path)+(download?"&download=1":"");
 function libraryViewerClose(){
