@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#101c2a">
 <meta http-equiv="Cache-Control" content="no-cache">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="stylesheet" href="/style.css?v=14">
+<link rel="stylesheet" href="/style.css?v=15">
 <title>Khensoz Transfer</title>
 </head>
 <body>
@@ -19,6 +19,17 @@
 <label class="picker camera-photo">Take photo<input id="cameraPhoto" type="file" accept="image/*" capture="environment"></label>
 <label class="picker camera-video">Record video (native)<input id="cameraVideo" type="file" accept="video/*" capture="environment"></label>
 <button id="hqOpen" type="button" class="hq-button">High Quality Camera (beta)</button>
+<button id="liveOpen" type="button" class="hq-button">Live stream to laptop</button>
+<div id="liveCamera" class="hq-camera" hidden>
+ <h2>Live camera → Windows recording</h2>
+ <video id="livePreview" autoplay playsinline muted></video>
+ <label for="livePreset">Requested quality</label>
+ <select id="livePreset"><option value="1920x1080x30">1080p · 30 FPS</option><option value="1920x1080x60">1080p · 60 FPS</option><option value="3840x2160x30">4K · 30 FPS</option><option value="3840x2160x60">4K · 60 FPS</option></select>
+ <p id="liveActual" role="status">Camera not started</p>
+ <p id="liveStatus" role="status">Open the camera to start.</p>
+ <div class="hq-actions"><button id="liveStart" type="button">Start live recording</button><button id="liveStop" type="button" disabled>Stop &amp; save on laptop</button><button id="liveClose" type="button">Close camera</button></div>
+ <p class="note">Streams encoded camera chunks to the Windows selected folder while recording, with no extra compression during transfer. Keep Safari open and awake. Requires trusted HTTPS; 4K/60 FPS depends on iPhone Safari support. If the connection fails, stop and check the partial recording on Windows.</p>
+</div>
 <div id="hqCamera" class="hq-camera" hidden>
  <video id="hqPreview" autoplay playsinline muted></video>
  <label for="hqPreset">Requested quality</label>
@@ -37,6 +48,6 @@
 <p id="error" role="alert"></p>
 <p class="note">Keep Safari open and your iPhone awake during transfer. Interrupted files can resume after reselecting them.</p>
 </main>
-<script type="module" src="/src.js?v=14"></script>
+<script type="module" src="/src.js?v=15"></script>
 </body>
 </html>
