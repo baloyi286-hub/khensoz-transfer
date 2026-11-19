@@ -235,7 +235,7 @@ $("hqStop").onclick=()=>{
 
 let liveStream=null,liveRecorder=null,liveSession=null,liveSequence=0,liveBytes=0;
 let livePending=Promise.resolve(),liveQueued=0,liveError=null,liveActive=false;
-let livePreviewTimer=null,livePreviewBusy=false;
+let livePreviewTimer=null,livePreviewBusy=false,liveFinalizing=false,liveStopTimer=null;
 const liveStatus=message=>{$("liveStatus").textContent=message};
 function liveCloseCamera(){
  if(liveActive){liveStatus("Stop recording first.");return}
@@ -303,7 +303,7 @@ $("liveStart").onclick=async()=>{
   const recorder=new MediaRecorder(liveStream,options);
   const extension=(recorder.mimeType||mime).includes("webm")?"webm":"mp4";
   liveSession=await api("/api/live/start","POST",JSON.stringify({extension}),{"Content-Type":"application/json"});
-  liveRecorder=recorder;liveSequence=0;liveBytes=0;liveError=null;liveQueued=0;
+  liveRecorder=recorder;liveSequence=0;liveBytes=0;liveError=null;liveQueued=0;liveFinalizing=false;
   const previewCanvas=document.createElement("canvas");
   previewCanvas.width=640;previewCanvas.height=360;
   const previewContext=previewCanvas.getContext("2d");
@@ -342,9 +342,14 @@ $("liveStart").onclick=async()=>{
    }).finally(()=>{liveQueued-=blob.size});
   };
   recorder.onerror=event=>{liveError=event.error||new Error("Camera recorder error")};
-  recorder.onstop=async()=>{
+  const finalizeLive=async()=>{
+   if(liveFinalizing)return;
+   liveFinalizing=true;
+   if(liveStopTimer){clearTimeout(liveStopTimer);liveStopTimer=null}
+   if(livePreviewTimer){clearInterval(livePreviewTimer);livePreviewTimer=null}
+   liveStatus("Saving on laptop: waiting for final video chunks…");
    try{
-    await livePending;
+    await Promise.race([livePending,new Promise((_,reject)=>setTimeout(()=>reject(new Error("Upload timed out after 90 seconds")),90000))]);
     if(liveError)throw liveError;
     const result=await api("/api/live/finish/"+liveSession.id,"POST",
      JSON.stringify({sequence:liveSequence}),{"Content-Type":"application/json"});
@@ -354,11 +359,12 @@ $("liveStart").onclick=async()=>{
     liveStatus("Recording interrupted: "+e.message+". Partial recording remains on Windows.");
    }finally{
     liveActive=false;
-    if(livePreviewTimer){clearInterval(livePreviewTimer);livePreviewTimer=null}
+    liveSession=null;
     $("liveStart").disabled=false;$("liveStop").disabled=true;
     await releaseAwake();
    }
   };
+  recorder.onstop=finalizeLive;
   recorder.start(1000);
   liveStatus("Live recording started. Sending video to Windows…");
  }catch(e){
@@ -368,10 +374,29 @@ $("liveStart").onclick=async()=>{
   liveStatus("Could not start live recording: "+e.message);
  }
 };
-$("liveStop").onclick=()=>{
- if(liveRecorder?.state==="recording"){
-  liveStatus("Finishing recording and saving final chunks…");
-  liveRecorder.stop();
+$("liveStop").onclick=async()=>{
+ if(!liveActive||liveFinalizing)return;
+ const recorder=liveRecorder;
+ $("liveStop").disabled=true;
+ liveStatus("Stopping iPhone camera and preparing Windows file…");
+ if(livePreviewTimer){clearInterval(livePreviewTimer);livePreviewTimer=null}
+ if(!recorder){liveStatus("No active recorder.");$("liveStop").disabled=false;return}
+ try{
+  if(recorder.state==="paused")recorder.resume();
+  if(recorder.state==="recording")recorder.stop();
+  else if(recorder.state==="inactive"){
+   if(typeof recorder.onstop==="function")await recorder.onstop();
+   return;
+  }
+  liveStopTimer=setTimeout(()=>{
+   if(!liveFinalizing){
+    liveStatus("Safari stop event delayed; attempting to save received video…");
+    if(typeof recorder.onstop==="function")recorder.onstop();
+   }
+  },8000);
+ }catch(e){
+  liveStatus("Stop failed: "+e.message);
+  $("liveStop").disabled=false;
  }
 };
 
