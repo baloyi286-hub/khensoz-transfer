@@ -4,6 +4,8 @@ from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from urllib.parse import urlsplit,quote,parse_qs
 import mimetypes
+import io
+from PIL import Image, ImageTk
 from live_capture import LiveCaptures
 
 # Windows power APIs: keep the display and system awake while the receiver runs.
@@ -35,6 +37,10 @@ class State:
   self.destination=Path(destination);self.destination.mkdir(parents=True,exist_ok=True)
   self.port=port
   self.live=LiveCaptures(self)
+  self.preview_lock=threading.Lock()
+  self.preview_frame=None
+  self.preview_updated=0
+  self.preview_bytes=0
   self.home=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"KhensozTransfer";self.home.mkdir(parents=True,exist_ok=True)
   try:self.sessions=json.loads((self.home/"transfers.json").read_text())
   except (OSError,ValueError):self.sessions={}
@@ -296,6 +302,19 @@ class Handler(BaseHTTPRequestHandler):
  def do_PUT(self):
   if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
   try:
+   if self.path.startswith("/api/live/preview/"):
+    token=self.path.rsplit("/",1)[-1]
+    state=self.server.state
+    if token not in state.live.active:raise ValueError("Unknown live recording")
+    length=int(self.headers.get("Content-Length","-1"))
+    if length<1 or length>500000:raise ValueError("Invalid preview frame size")
+    payload=self.rfile.read(length)
+    if len(payload)!=length or not payload.startswith(bytes([255,216])):raise ValueError("Invalid JPEG frame")
+    with state.preview_lock:
+     state.preview_frame=payload
+     state.preview_updated=time.monotonic()
+     state.preview_bytes=state.live.active[token]["bytes"]
+    return self.send(200,{"ok":True})
    if self.path.startswith("/api/live/chunk/"):
     length=int(self.headers.get("Content-Length","-1"))
     if length<1 or length>8*1024*1024:raise ValueError("Invalid live chunk size")
@@ -335,6 +354,37 @@ def main():
  page_window=page.create_window((0,0),window=tabs,anchor="nw")
  frame=ttk.Frame(tabs,style="Dark.TFrame",padding=22)
  tabs.add(frame,text="iPhone Transfer")
+ preview_tab=ttk.Frame(tabs,style="Dark.TFrame",padding=22)
+ tabs.add(preview_tab,text="iPhone Live Monitor")
+ ttk.Label(preview_tab,text="iPhone Live Camera Monitor",style="Dark.TLabel",
+           font=("Segoe UI",20,"bold")).pack(anchor="w",pady=(0,10))
+ ttk.Label(preview_tab,text="Start Live stream to laptop on the iPhone. Low-bandwidth preview shown here while original recording saves to Windows.",
+           style="Dark.TLabel",wraplength=820).pack(anchor="w",pady=(0,12))
+ preview_status=tk.StringVar(value="Waiting for iPhone live recording...")
+ ttk.Label(preview_tab,textvariable=preview_status,style="Dark.TLabel").pack(anchor="w",pady=(0,10))
+ preview_label=tk.Label(preview_tab,bg="#101114",fg="#f8f8f2",text="No live video yet",width=80,height=22)
+ preview_label.pack(fill="both",expand=True)
+ preview_seen=[None]
+ def refresh_preview():
+  with state.preview_lock:
+   frame_bytes=state.preview_frame
+   updated=state.preview_updated
+   written=state.preview_bytes
+  if frame_bytes and updated!=preview_seen[0]:
+   try:
+    frame_image=Image.open(io.BytesIO(frame_bytes))
+    frame_image.thumbnail((850,480))
+    photo=ImageTk.PhotoImage(frame_image)
+    preview_label.configure(image=photo,text="",width=0,height=0)
+    preview_label.image=photo
+    preview_seen[0]=updated
+   except (OSError,ValueError):pass
+  if updated and time.monotonic()-updated<4:
+   preview_status.set("LIVE preview | Original received: %.1f MB"%(written/1048576))
+  else:
+   preview_status.set("Waiting for iPhone live recording..." if not updated else "Preview disconnected or recording stopped")
+  root.after(250,refresh_preview)
+
  gopro_frame=ttk.Frame(tabs,style="Dark.TFrame",padding=22)
  tabs.add(gopro_frame,text="GoPro HERO11")
  from gopro_tab import mount_gopro_tab
@@ -355,6 +405,7 @@ def main():
  ttk.Entry(frame,textvariable=dest,style="Dark.TEntry").pack(fill="x",pady=7)
  ttk.Button(frame,text="Choose folder",style="Dark.TButton",command=lambda:dest.set(filedialog.askdirectory() or dest.get())).pack(anchor="w",pady=(0,16))
  state=State(dest.get(),8765)
+ refresh_preview()
  def update_shared_folder(*_):
   with LOCK:
    folder=Path(dest.get()).expanduser()
