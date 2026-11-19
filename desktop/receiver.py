@@ -4,6 +4,7 @@ from tkinter import filedialog,ttk
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from urllib.parse import urlsplit,quote,parse_qs
 import mimetypes
+from live_capture import LiveCaptures
 
 # Windows power APIs: keep the display and system awake while the receiver runs.
 ES_CONTINUOUS=0x80000000
@@ -33,6 +34,7 @@ class State:
  def __init__(self,destination,port):
   self.destination=Path(destination);self.destination.mkdir(parents=True,exist_ok=True)
   self.port=port
+  self.live=LiveCaptures(self)
   self.home=Path(os.environ.get("LOCALAPPDATA",Path.home()))/"KhensozTransfer";self.home.mkdir(parents=True,exist_ok=True)
   try:self.sessions=json.loads((self.home/"transfers.json").read_text())
   except (OSError,ValueError):self.sessions={}
@@ -260,7 +262,22 @@ class Handler(BaseHTTPRequestHandler):
     return self.send(409,{"error":"Shortcut upload interrupted. Please retry the file."})
   except (ValueError,OSError) as e:return self.send(400,{"error":str(e)})
  def do_POST(self):
-  if urlsplit(self.path).path=="/api/shortcut":return self.shortcut_upload()
+  route=urlsplit(self.path).path
+  if route=="/api/live/start":
+   try:
+    length=int(self.headers.get("Content-Length","0"))
+    if length<1 or length>1024:return self.send(400,{"error":"Invalid request"})
+    data=json.loads(self.rfile.read(length))
+    return self.send(200,self.server.state.live.start(data.get("extension")))
+   except (ValueError,KeyError,OSError) as e:return self.send(400,{"error":str(e)})
+  if route.startswith("/api/live/finish/"):
+   try:
+    length=int(self.headers.get("Content-Length","0"))
+    if length<1 or length>1024:return self.send(400,{"error":"Invalid request"})
+    data=json.loads(self.rfile.read(length))
+    return self.send(200,self.server.state.live.finish(route.rsplit("/",1)[-1],int(data["sequence"])))
+   except (ValueError,KeyError,OSError) as e:return self.send(409,{"error":str(e)})
+  if route=="/api/shortcut":return self.shortcut_upload()
   try:
    length=int(self.headers.get("Content-Length","0"))
    if length>4096:raise ValueError("Request too large")
@@ -279,6 +296,15 @@ class Handler(BaseHTTPRequestHandler):
  def do_PUT(self):
   if not self.auth():return self.send(403,{"error":"Invalid pairing token"})
   try:
+   if self.path.startswith("/api/live/chunk/"):
+    length=int(self.headers.get("Content-Length","-1"))
+    if length<1 or length>8*1024*1024:raise ValueError("Invalid live chunk size")
+    payload=self.rfile.read(length)
+    if len(payload)!=length:raise ValueError("Incomplete live chunk")
+    if hashlib.sha256(payload).hexdigest()!=self.headers.get("X-Chunk-SHA256"):
+     raise ValueError("Live chunk checksum mismatch")
+    sequence=int(self.headers.get("X-Chunk-Sequence","-1"))
+    return self.send(200,self.server.state.live.append(self.path.rsplit("/",1)[-1],sequence,payload))
    if not self.path.startswith("/api/chunk/"):return self.send(404,{"error":"Not found"})
    n=int(self.headers.get("Content-Length","0"))
    if n<0 or n>8*1024*1024:raise ValueError("Invalid chunk length")
